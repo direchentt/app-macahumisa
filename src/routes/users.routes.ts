@@ -3,6 +3,11 @@ import { z } from "zod";
 import type { Pool } from "pg";
 import type { Env } from "../config/env.js";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
+import { EXPENSE_VISIBILITY_SQL } from "../lib/expenseVisibilitySql.js";
+
+const EXPENSE_BACKUP_SELECT = `e.id, e.user_id, e.amount::text, e.currency, e.category, e.description, e.date::text, e.tags, e.notes, e.source,
+  e.is_income, e.is_recurring, e.recurring_frequency, e.merchant, e.receipt_url, e.status, e.shared_with,
+  e.shared_list_id, e.due_date::text, e.created_at::text, e.updated_at::text, e.deleted_at::text`;
 
 const patchMe = z
   .object({
@@ -83,6 +88,83 @@ export function usersRouter(pool: Pool, env: Env) {
       return;
     }
     res.json({ user: u });
+  });
+
+  /** Respaldo JSON de los datos visibles para el usuario (gastos, presupuestos, metas, listas, reglas, webhook). */
+  r.get("/me/backup", auth, async (req, res) => {
+    const { userId } = req as AuthedRequest;
+    const exported_at = new Date().toISOString();
+    const [
+      userRow,
+      expenseRows,
+      budgetRows,
+      goalRows,
+      listRows,
+      ruleRows,
+      webhookRows,
+      membershipRows,
+    ] = await Promise.all([
+      pool.query<PublicUser>(
+        `SELECT id, email, first_name, last_name, profile_picture_url, currency, timezone, language, dark_mode, created_at, updated_at
+         FROM users WHERE id = $1 AND deleted_at IS NULL`,
+        [userId],
+      ),
+      pool.query(
+        `SELECT ${EXPENSE_BACKUP_SELECT}
+         FROM expenses e
+         WHERE ${EXPENSE_VISIBILITY_SQL}
+         ORDER BY e.date DESC NULLS LAST, e.created_at DESC`,
+        [userId],
+      ),
+      pool.query(
+        `SELECT id, user_id, limit_amount::text, category, period, alert_threshold, created_at, updated_at
+         FROM budgets WHERE user_id = $1 ORDER BY category ASC`,
+        [userId],
+      ),
+      pool.query(
+        `SELECT id, user_id, name, target_amount::text, saved_amount::text, currency, deadline::text, created_at, updated_at
+         FROM savings_goals WHERE user_id = $1 ORDER BY created_at DESC`,
+        [userId],
+      ),
+      pool.query(
+        `SELECT DISTINCT sl.id, sl.owner_id, sl.name, sl.description, sl.created_at, sl.updated_at
+         FROM shared_lists sl
+         LEFT JOIN memberships m ON m.list_id = sl.id
+         WHERE sl.owner_id = $1 OR m.user_id = $1
+         ORDER BY sl.updated_at DESC`,
+        [userId],
+      ),
+      pool.query(
+        `SELECT id, user_id, pattern, category, created_at FROM category_rules WHERE user_id = $1 ORDER BY created_at ASC`,
+        [userId],
+      ),
+      pool.query(`SELECT url, created_at, updated_at FROM user_webhooks WHERE user_id = $1`, [userId]),
+      pool.query(
+        `SELECT m.id, m.user_id, m.list_id, m.role, m.joined_at
+         FROM memberships m
+         WHERE m.user_id = $1`,
+        [userId],
+      ),
+    ]);
+
+    const u = userRow.rows[0];
+    if (!u) {
+      res.status(404).json({ error: "Usuario no encontrado" });
+      return;
+    }
+
+    res.json({
+      backup_version: 1,
+      exported_at,
+      user: u,
+      expenses: expenseRows.rows,
+      budgets: budgetRows.rows,
+      savings_goals: goalRows.rows,
+      shared_lists: listRows.rows,
+      category_rules: ruleRows.rows,
+      webhook: webhookRows.rows[0] ?? null,
+      memberships: membershipRows.rows,
+    });
   });
 
   return r;

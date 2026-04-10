@@ -1,16 +1,21 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { SharedList } from "../api/client";
-import { createExpense } from "../api/client";
+import { ApiError, createExpense, NetworkFailure } from "../api/client";
+import { enqueuePendingExpense } from "../lib/offlineDb";
 import { useToast } from "../contexts/ToastContext";
+import { compressReceiptToDataUrl } from "../lib/compressReceiptImage";
 
 type Props = {
   token: string;
   lists: SharedList[];
+  userId: string | null;
   onCreated: () => void;
+  onPendingChange?: () => void;
 };
 
-export function ExpenseForm({ token, lists, onCreated }: Props) {
+export function ExpenseForm({ token, lists, userId, onCreated, onPendingChange }: Props) {
   const { showToast } = useToast();
+  const receiptInputRef = useRef<HTMLInputElement>(null);
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState("USD");
   const [category, setCategory] = useState("");
@@ -22,10 +27,27 @@ export function ExpenseForm({ token, lists, onCreated }: Props) {
   const [open, setOpen] = useState(false);
   const [when, setWhen] = useState(() => new Date().toISOString().slice(0, 16));
   const [dueDate, setDueDate] = useState("");
+  const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
+  const [receiptLabel, setReceiptLabel] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) setError(null);
   }, [open]);
+
+  function resetAfterSave(recordedAsIncome: boolean, opts?: { noToast?: boolean }) {
+    setAmount("");
+    setCategory("");
+    setDescription("");
+    setSharedListId("");
+    setIsIncome(false);
+    setDueDate("");
+    setReceiptPreview(null);
+    setReceiptLabel(null);
+    if (receiptInputRef.current) receiptInputRef.current.value = "";
+    setOpen(false);
+    onCreated();
+    if (!opts?.noToast) showToast(recordedAsIncome ? "Ingreso registrado" : "Gasto guardado");
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -36,32 +58,86 @@ export function ExpenseForm({ token, lists, onCreated }: Props) {
       return;
     }
     setLoading(true);
+    const recordedAsIncome = isIncome;
+    const payload = {
+      amount: n,
+      currency: currency.toUpperCase(),
+      date: new Date(when).toISOString(),
+      category: category.trim() || null,
+      description: description.trim() || null,
+      is_income: isIncome,
+      shared_list_id: sharedListId || null,
+      due_date: dueDate.trim() ? new Date(dueDate).toISOString() : null,
+      receipt_url: receiptPreview,
+    };
     try {
-      const recordedAsIncome = isIncome;
-      await createExpense(token, {
-        amount: n,
-        currency: currency.toUpperCase(),
-        date: new Date(when).toISOString(),
-        category: category.trim() || null,
-        description: description.trim() || null,
-        is_income: isIncome,
-        shared_list_id: sharedListId || null,
-        due_date: dueDate.trim() ? new Date(dueDate).toISOString() : null,
-      });
-      setAmount("");
-      setCategory("");
-      setDescription("");
-      setSharedListId("");
-      setIsIncome(false);
-      setDueDate("");
-      setOpen(false);
-      onCreated();
-      showToast(recordedAsIncome ? "Ingreso registrado" : "Gasto guardado");
+      try {
+        await createExpense(token, { ...payload, force_duplicate: false });
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 409) {
+          const ok = window.confirm(
+            "Ya cargaste un movimiento con el mismo importe y moneda en este día. ¿Querés guardar este igualmente?",
+          );
+          if (!ok) return;
+          await createExpense(token, { ...payload, force_duplicate: true });
+        } else {
+          throw err;
+        }
+      }
+      resetAfterSave(recordedAsIncome);
     } catch (err) {
+      if (err instanceof NetworkFailure && userId) {
+        await enqueuePendingExpense({
+          localId: crypto.randomUUID(),
+          userId,
+          body: {
+            amount: n,
+            currency: currency.toUpperCase(),
+            date: new Date(when).toISOString(),
+            category: category.trim() || null,
+            description: description.trim() || null,
+            is_income: recordedAsIncome,
+            shared_list_id: sharedListId || null,
+            due_date: dueDate.trim() ? new Date(dueDate).toISOString() : null,
+            receipt_url: receiptPreview,
+          },
+          queuedAt: new Date().toISOString(),
+        });
+        showToast("Sin conexión: el movimiento quedó en cola y se subirá cuando vuelva la red.");
+        resetAfterSave(recordedAsIncome, { noToast: true });
+        onPendingChange?.();
+        return;
+      }
       setError(err instanceof Error ? err.message : "Error");
     } finally {
       setLoading(false);
     }
+  }
+
+  async function onReceiptChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) {
+      setReceiptPreview(null);
+      setReceiptLabel(null);
+      return;
+    }
+    setError(null);
+    try {
+      const dataUrl = await compressReceiptToDataUrl(file);
+      setReceiptPreview(dataUrl);
+      setReceiptLabel(file.name);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo leer la imagen");
+      e.target.value = "";
+      setReceiptPreview(null);
+      setReceiptLabel(null);
+    }
+  }
+
+  function clearReceipt() {
+    setReceiptPreview(null);
+    setReceiptLabel(null);
+    if (receiptInputRef.current) receiptInputRef.current.value = "";
   }
 
   if (!open) {
@@ -131,6 +207,19 @@ export function ExpenseForm({ token, lists, onCreated }: Props) {
             className="expense-input"
           />
         </label>
+        <div className="expense-receipt">
+          <span className="expense-field-label">Comprobante (opcional)</span>
+          <div className="expense-receipt-row">
+            <input ref={receiptInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={onReceiptChange} className="expense-receipt-input" />
+            {receiptPreview && (
+              <button type="button" className="expense-receipt-clear" onClick={clearReceipt}>
+                Quitar
+              </button>
+            )}
+          </div>
+          {receiptLabel && <p className="expense-receipt-name">{receiptLabel}</p>}
+          {receiptPreview && <img src={receiptPreview} alt="" className="expense-receipt-thumb" />}
+        </div>
         {lists.length > 0 && (
           <label>
             <span className="expense-field-label">Lista compartida (opcional)</span>

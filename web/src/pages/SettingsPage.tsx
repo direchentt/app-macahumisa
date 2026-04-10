@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
+import { useToast } from "../contexts/ToastContext";
 import { DatabaseSetupHint } from "../components/DatabaseSetupHint";
 import { isDatabaseSetupMessage } from "../lib/isDatabaseSetupMessage";
 import {
   createCategoryRule,
   deleteCategoryRule,
   getWebhook,
+  fetchBackupJson,
   listCategoryRules,
   putWebhook,
   deleteWebhook,
@@ -24,12 +26,14 @@ const field = {
 
 export function SettingsPage() {
   const { token } = useAuth();
+  const { showToast } = useToast();
   const [rules, setRules] = useState<CategoryRule[]>([]);
   const [pattern, setPattern] = useState("");
   const [category, setCategory] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
   const [webhookSaved, setWebhookSaved] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [backupBusy, setBackupBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -62,6 +66,27 @@ export function SettingsPage() {
       await load();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Error");
+    }
+  }
+
+  async function downloadBackup() {
+    if (!token) return;
+    setBackupBusy(true);
+    try {
+      const data = await fetchBackupJson(token);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const stamp = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `macahumisa-respaldo-${stamp}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast("Respaldo JSON descargado");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Error al generar respaldo");
+    } finally {
+      setBackupBusy(false);
     }
   }
 
@@ -108,6 +133,32 @@ export function SettingsPage() {
           {err}
         </p>
       )}
+
+      <section style={{ marginBottom: 40 }}>
+        <h2 style={{ fontSize: "1.1rem", margin: "0 0 12px" }}>Respaldo de tus datos</h2>
+        <p style={{ margin: "0 0 12px", color: "var(--text-muted)", fontSize: "0.9rem", lineHeight: 1.5 }}>
+          Descargá un archivo JSON con gastos visibles para tu cuenta, presupuestos, metas, listas, reglas, membresías y webhook.
+          Guardalo en un lugar seguro (y repetí cuando quieras). La app también guarda en este dispositivo la última vista de
+          movimientos para consulta sin red.
+        </p>
+        <button
+          type="button"
+          disabled={backupBusy || !token}
+          onClick={() => void downloadBackup()}
+          style={{
+            padding: "10px 16px",
+            border: "none",
+            borderRadius: "var(--radius-sm)",
+            background: "var(--cta)",
+            color: "var(--cta-fg)",
+            fontWeight: 700,
+            opacity: backupBusy ? 0.65 : 1,
+            cursor: backupBusy ? "wait" : "pointer",
+          }}
+        >
+          {backupBusy ? "Generando…" : "Descargar respaldo JSON"}
+        </button>
+      </section>
 
       <section style={{ marginBottom: 40 }}>
         <h2 style={{ fontSize: "1.1rem", margin: "0 0 12px" }}>Reglas automáticas de categoría</h2>

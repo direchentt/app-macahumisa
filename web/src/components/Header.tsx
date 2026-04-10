@@ -3,6 +3,7 @@ import { useAuth } from "../contexts/AuthContext";
 import {
   IconBell,
   IconChart,
+  IconHistory,
   IconHome,
   IconLogo,
   IconMap,
@@ -15,7 +16,7 @@ import {
   IconUsers,
 } from "./AppIcons";
 
-export type AppView = "dashboard" | "notifications" | "budgets" | "lists" | "goals" | "settings";
+export type AppView = "dashboard" | "notifications" | "budgets" | "lists" | "goals" | "settings" | "history";
 
 type Props = {
   unreadNotifications: number;
@@ -31,6 +32,7 @@ const navTitle: Record<AppView, string> = {
   notifications: "Avisos cuando hay actividad en tus listas",
   goals: "Metas de ahorro y progreso",
   settings: "Reglas automáticas, webhook y apariencia",
+  history: "Quién cambió qué en tus gastos visibles",
 };
 
 const pageHeading: Record<AppView, string> = {
@@ -40,6 +42,7 @@ const pageHeading: Record<AppView, string> = {
   notifications: "Avisos",
   goals: "Metas",
   settings: "Ajustes",
+  history: "Historial",
 };
 
 export function Header({ unreadNotifications, view, onNavigate, onOpenTour }: Props) {
@@ -48,7 +51,7 @@ export function Header({ unreadNotifications, view, onNavigate, onOpenTour }: Pr
   const [moreOpen, setMoreOpen] = useState(false);
 
   const navBtn = (v: AppView) => `app-nav-pill${view === v ? " app-nav-pill--active" : ""}`;
-  const moreTabActive = view === "notifications" || view === "settings";
+  const moreTabActive = view === "notifications" || view === "settings" || view === "history";
 
   useEffect(() => {
     if (!moreOpen) return;
@@ -80,7 +83,7 @@ export function Header({ unreadNotifications, view, onNavigate, onOpenTour }: Pr
           <div className="app-header-brand-block">
             <span className="app-header-brand">
               <IconLogo className="app-header-logo" />
-              <span className="app-header-brand-text">Macahumisa</span>
+              <span className="app-header-brand-text">MACAHUMISA</span>
             </span>
             <p className="app-header-page-heading">{pageHeading[view]}</p>
           </div>
@@ -115,6 +118,10 @@ export function Header({ unreadNotifications, view, onNavigate, onOpenTour }: Pr
           <button type="button" title={navTitle.goals} className={navBtn("goals")} onClick={() => onNavigate("goals")}>
             <IconTarget className="app-nav-pill__icon" />
             <span>Metas</span>
+          </button>
+          <button type="button" title={navTitle.history} className={navBtn("history")} onClick={() => onNavigate("history")}>
+            <IconHistory className="app-nav-pill__icon" />
+            <span>Historial</span>
           </button>
           <button type="button" title={navTitle.lists} className={navBtn("lists")} onClick={() => onNavigate("lists")}>
             <IconUsers className="app-nav-pill__icon" />
@@ -192,6 +199,10 @@ export function Header({ unreadNotifications, view, onNavigate, onOpenTour }: Pr
                 <IconBell className="app-more__row-icon" />
                 <span>Avisos</span>
                 {unreadNotifications > 0 ? <span className="app-more__pill">{unreadNotifications > 99 ? "99+" : unreadNotifications}</span> : null}
+              </button>
+              <button type="button" className="app-more__row" onClick={() => go("history")}>
+                <IconHistory className="app-more__row-icon" />
+                <span>Historial de cambios</span>
               </button>
               <button type="button" className="app-more__row" onClick={() => go("settings")}>
                 <IconSettings className="app-more__row-icon" />

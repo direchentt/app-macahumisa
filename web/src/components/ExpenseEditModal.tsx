@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import type { Expense, SharedList } from "../api/client";
 import { updateExpense } from "../api/client";
 import { useToast } from "../contexts/ToastContext";
+import { compressReceiptToDataUrl } from "../lib/compressReceiptImage";
 
 type Props = {
   token: string;
@@ -22,6 +23,7 @@ const inputStyle = {
 
 export function ExpenseEditModal({ token, expense, lists, onClose, onSaved }: Props) {
   const { showToast } = useToast();
+  const receiptRef = useRef<HTMLInputElement>(null);
   const [amount, setAmount] = useState(expense.amount.replace(".", ","));
   const [currency, setCurrency] = useState(expense.currency);
   const [category, setCategory] = useState(expense.category ?? "");
@@ -32,6 +34,8 @@ export function ExpenseEditModal({ token, expense, lists, onClose, onSaved }: Pr
   const [due, setDue] = useState(expense.due_date ? new Date(expense.due_date).toISOString().slice(0, 16) : "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(expense.receipt_url);
+  const [receiptFileName, setReceiptFileName] = useState<string | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -53,6 +57,7 @@ export function ExpenseEditModal({ token, expense, lists, onClose, onSaved }: Pr
         is_income: isIncome,
         shared_list_id: sharedListId || null,
         due_date: due.trim() ? new Date(due).toISOString() : null,
+        receipt_url: receiptUrl,
       });
       onSaved();
       onClose();
@@ -128,6 +133,51 @@ export function ExpenseEditModal({ token, expense, lists, onClose, onSaved }: Pr
             <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Nota</span>
             <input value={description} onChange={(e) => setDescription(e.target.value)} style={{ ...inputStyle, marginTop: 4 }} />
           </label>
+          <div>
+            <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", display: "block", marginBottom: 6 }}>Comprobante</span>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+              <input
+                ref={receiptRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  if (!f) return;
+                  setError(null);
+                  try {
+                    setReceiptUrl(await compressReceiptToDataUrl(f));
+                    setReceiptFileName(f.name);
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Imagen inválida");
+                    e.target.value = "";
+                  }
+                }}
+                style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}
+              />
+              {receiptUrl && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReceiptUrl(null);
+                    setReceiptFileName(null);
+                    if (receiptRef.current) receiptRef.current.value = "";
+                  }}
+                  style={{ ...inputStyle, padding: "6px 12px", cursor: "pointer" }}
+                >
+                  Quitar
+                </button>
+              )}
+            </div>
+            {receiptFileName && <p style={{ margin: "6px 0 0", fontSize: "0.75rem", color: "var(--text-muted)" }}>{receiptFileName}</p>}
+            {receiptUrl && receiptUrl.startsWith("data:") && (
+              <img src={receiptUrl} alt="" style={{ marginTop: 8, maxHeight: 120, borderRadius: 8, border: "1px solid var(--border)" }} />
+            )}
+            {receiptUrl && receiptUrl.startsWith("http") && (
+              <a href={receiptUrl} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 8, fontSize: "0.85rem" }}>
+                Ver comprobante actual
+              </a>
+            )}
+          </div>
           {lists.length > 0 && (
             <label>
               <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Lista</span>

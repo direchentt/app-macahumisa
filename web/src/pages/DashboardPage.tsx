@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import {
+  ApiError,
+  createExpense,
   deleteExpense,
   exportExpensesCsv,
   listBudgets,
   listExpenses,
   listSharedLists,
   getBudgetUsage,
+  NetworkFailure,
   type BudgetUsage,
   type Expense,
   type ExpenseListQuery,
@@ -18,6 +21,15 @@ import { DatabaseSetupHint } from "../components/DatabaseSetupHint";
 import { isDatabaseSetupMessage } from "../lib/isDatabaseSetupMessage";
 import { isDashboardWelcomeDismissed, setDashboardWelcomeDismissed } from "../lib/dashboardWelcomeStorage";
 import { useToast } from "../contexts/ToastContext";
+import {
+  expenseQueryKey,
+  loadDashboardCache,
+  listPendingCreates,
+  pendingCreateToExpense,
+  removePending,
+  saveDashboardCache,
+  type PendingExpenseCreate,
+} from "../lib/offlineDb";
 
 type Props = {
   onDataChange?: () => void;
@@ -98,6 +110,8 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
     !welcomeDismissedLocal &&
     !isDashboardWelcomeDismissed(userId ?? null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [pendingCreates, setPendingCreates] = useState<PendingExpenseCreate[]>([]);
+  const [dataFromCache, setDataFromCache] = useState(false);
   const [lists, setLists] = useState<SharedList[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -117,6 +131,14 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
   const filtersExtra = Boolean(q.trim() || category.trim() || listFilter || incomeFilter !== "all");
   const filtersActive =
     dashTab === "custom" ? Boolean(filtersExtra || from || to) : filtersExtra;
+
+  const refreshPending = useCallback(async () => {
+    if (!userId) {
+      setPendingCreates([]);
+      return;
+    }
+    setPendingCreates(await listPendingCreates(userId));
+  }, [userId]);
 
   const queryParams = useMemo((): ExpenseListQuery => {
     const p: ExpenseListQuery = { limit: 250 };
@@ -140,21 +162,99 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
   const load = useCallback(async () => {
     if (!token) return;
     setErr(null);
+    setDataFromCache(false);
     try {
       const [ex, ls] = await Promise.all([listExpenses(token, queryParams), listSharedLists(token)]);
       setExpenses(ex.expenses);
       setLists(ls.shared_lists);
+      if (userId) {
+        await saveDashboardCache({
+          userId,
+          queryKey: expenseQueryKey(queryParams),
+          expenses: ex.expenses,
+          lists: ls.shared_lists,
+          savedAt: new Date().toISOString(),
+        });
+      }
       onDataChange?.();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Error al cargar");
+      if (e instanceof NetworkFailure && userId) {
+        const cached = await loadDashboardCache(userId);
+        const qk = expenseQueryKey(queryParams);
+        if (cached && cached.queryKey === qk) {
+          setExpenses(cached.expenses);
+          setLists(cached.lists);
+          setDataFromCache(true);
+          setErr(null);
+        } else if (cached) {
+          setExpenses([]);
+          setLists(cached.lists);
+          setDataFromCache(true);
+          setErr(
+            "Sin conexión: la última copia en este dispositivo es de otra vista o filtros. Ajustá la vista o esperá conexión.",
+          );
+        } else {
+          setErr(e.message);
+        }
+      } else {
+        setErr(e instanceof Error ? e.message : "Error al cargar");
+      }
     } finally {
       setLoading(false);
     }
-  }, [token, queryParams, onDataChange]);
+  }, [token, queryParams, onDataChange, userId]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    void refreshPending();
+  }, [refreshPending]);
+
+  const syncPendingQueue = useCallback(async () => {
+    if (!token || !userId) return;
+    const items = await listPendingCreates(userId);
+    if (items.length === 0) return;
+    let ok = 0;
+    for (const item of items) {
+      try {
+        await createExpense(token, { ...item.body, force_duplicate: false });
+        await removePending(item.localId);
+        ok += 1;
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 409) {
+          const cont = window.confirm(
+            "Un movimiento en cola podría ser duplicado de uno del mismo día. ¿Subirlo igual?",
+          );
+          if (cont) {
+            try {
+              await createExpense(token, { ...item.body, force_duplicate: true });
+              await removePending(item.localId);
+              ok += 1;
+              continue;
+            } catch {
+              break;
+            }
+          }
+        }
+        break;
+      }
+    }
+    if (ok > 0) {
+      showToast(ok === items.length ? "Cola sincronizada con el servidor" : `Subidos ${ok} de ${items.length} en cola`);
+      await refreshPending();
+      await load();
+    }
+  }, [token, userId, load, refreshPending, showToast]);
+
+  useEffect(() => {
+    const onOnline = () => {
+      void syncPendingQueue();
+    };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [syncPendingQueue]);
 
   useEffect(() => {
     if (!token) return;
@@ -178,16 +278,52 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [token, expenses.length]);
+  }, [token, expenses.length, pendingCreates.length]);
+
+  const displayExpenses = useMemo(() => {
+    const p = pendingCreates.map(pendingCreateToExpense);
+    return [...p, ...expenses].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [pendingCreates, expenses]);
 
   const periodLabel = useMemo(() => labelForYm(periodYm), [periodYm]);
-  const summaryMap = useMemo(() => totalsByCurrency(expenses), [expenses]);
-  const dues = useMemo(() => upcomingDues(expenses, 45), [expenses]);
+  const summaryMap = useMemo(() => totalsByCurrency(displayExpenses), [displayExpenses]);
+  const dues = useMemo(() => upcomingDues(displayExpenses, 45), [displayExpenses]);
+
+  const smartHints = useMemo(() => {
+    const hints: string[] = [];
+    const over = budgetAlerts.usage.filter((u) => u.over_limit);
+    if (over.length > 0) {
+      hints.push(
+        `${over.length} categoría(s) por encima del presupuesto: ${over.map((u) => u.category).join(", ")}.`,
+      );
+    }
+    const warn = budgetAlerts.usage.filter((u) => !u.over_limit && u.percent_used >= 85);
+    if (warn.length > 0) {
+      hints.push(
+        `Cerca del tope: ${warn.map((u) => `${u.category} (${Math.round(u.percent_used)}%)`).join(" · ")}.`,
+      );
+    }
+    if (dues.length > 0) {
+      hints.push(`Tenés ${dues.length} pago(s) con vencimiento en los próximos 45 días.`);
+    }
+    if (hints.length === 0 && displayExpenses.length > 2) {
+      hints.push("En Ajustes podés crear reglas para asignar categoría automáticamente según palabras en la nota.");
+    }
+    return hints;
+  }, [budgetAlerts.usage, dues.length, displayExpenses.length]);
 
   const showList = dashTab === "month" || dashTab === "custom";
-  const listSlice = dashTab === "overview" ? expenses.slice(0, 8) : expenses;
+  const listSlice = dashTab === "overview" ? displayExpenses.slice(0, 8) : displayExpenses;
 
   async function handleDelete(id: string) {
+    const queued = pendingCreates.find((p) => p.localId === id);
+    if (queued) {
+      if (!confirm("¿Quitar este movimiento de la cola? No se subirá al servidor.")) return;
+      await removePending(id);
+      await refreshPending();
+      showToast("Quitado de la cola");
+      return;
+    }
     if (!token || !confirm("¿Eliminar este movimiento?")) return;
     try {
       await deleteExpense(token, id);
@@ -228,15 +364,15 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
       showToast("Permití ventanas emergentes para imprimir");
       return;
     }
-    const rows = expenses
+    const rows = displayExpenses
       .map((row) => {
         const listName = row.shared_list_id ? lists.find((l) => l.id === row.shared_list_id)?.name ?? "—" : "—";
         return `<tr><td>${fmtDate(row.date)}</td><td>${row.is_income ? "+" : "−"} ${fmtMoney(row.amount, row.currency)}</td><td>${row.category ?? "—"}</td><td>${(row.description ?? "—").replace(/</g, "&lt;")}</td><td>${listName}</td></tr>`;
       })
       .join("");
-    w.document.write(`<!DOCTYPE html><html><head><title>Movimientos</title>
+    w.document.write(`<!DOCTYPE html><html><head><title>MACAHUMISA — Movimientos</title>
       <style>body{font-family:system-ui,sans-serif;padding:16px} table{border-collapse:collapse;width:100%} th,td{border:1px solid #ccc;padding:8px;text-align:left} th{background:#eee}</style>
-      </head><body><h1>Macahumisa — movimientos</h1><table><thead><tr><th>Fecha</th><th>Importe</th><th>Categoría</th><th>Nota</th><th>Lista</th></tr></thead><tbody>${rows}</tbody></table>
+      </head><body><h1>MACAHUMISA — movimientos</h1><table><thead><tr><th>Fecha</th><th>Importe</th><th>Categoría</th><th>Nota</th><th>Lista</th></tr></thead><tbody>${rows}</tbody></table>
       <p style="color:#666;font-size:12px">Generado ${new Intl.DateTimeFormat("es").format(new Date())}</p></body></html>`);
     w.document.close();
     w.focus();
@@ -295,7 +431,14 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
       const listName = row.shared_list_id ? lists.find((l) => l.id === row.shared_list_id)?.name ?? "—" : "—";
       return (
         <tr key={row.id}>
-          <td style={{ whiteSpace: "nowrap" }}>{fmtDate(row.date)}</td>
+          <td style={{ whiteSpace: "nowrap" }}>
+            {fmtDate(row.date)}
+            {row.pending_sync ? (
+              <span className="dash-pending-badge" title="Pendiente de subir">
+                cola
+              </span>
+            ) : null}
+          </td>
           <td className={`num ${row.is_income ? "income" : ""}`}>
             {row.is_income ? "+" : "−"} {fmtMoney(row.amount, row.currency)}
           </td>
@@ -305,13 +448,30 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
             {row.due_date ? fmtDateShort(row.due_date) : "—"}
           </td>
           <td style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>{listName}</td>
+          <td style={{ fontSize: "0.85rem" }}>
+            {row.receipt_url ? (
+              <a href={row.receipt_url} target="_blank" rel="noreferrer" className="dash-receipt-link">
+                Ver foto
+              </a>
+            ) : (
+              "—"
+            )}
+          </td>
           <td>
-            <button type="button" className="dash-link-btn" onClick={() => setEditing(row)}>
-              Editar
-            </button>{" "}
-            <button type="button" className="dash-link-btn dash-link-btn--muted" onClick={() => handleDelete(row.id)}>
-              Eliminar
-            </button>
+            {row.pending_sync ? (
+              <button type="button" className="dash-link-btn dash-link-btn--muted" onClick={() => handleDelete(row.id)}>
+                Quitar de cola
+              </button>
+            ) : (
+              <>
+                <button type="button" className="dash-link-btn" onClick={() => setEditing(row)}>
+                  Editar
+                </button>{" "}
+                <button type="button" className="dash-link-btn dash-link-btn--muted" onClick={() => handleDelete(row.id)}>
+                  Eliminar
+                </button>
+              </>
+            )}
           </td>
         </tr>
       );
@@ -324,7 +484,10 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
       return (
         <article key={row.id} className="dash-exp-card">
           <div className="dash-exp-card-top">
-            <span className="dash-exp-card-date">{fmtDateShort(row.date)}</span>
+            <span className="dash-exp-card-date">
+              {fmtDateShort(row.date)}
+              {row.pending_sync ? <span className="dash-pending-badge"> cola</span> : null}
+            </span>
             <span className={`dash-exp-card-amount ${row.is_income ? "income" : ""}`}>
               {row.is_income ? "+" : "−"} {fmtMoney(row.amount, row.currency)}
             </span>
@@ -335,14 +498,30 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
           <p className="dash-exp-card-meta">
             {listName}
             {row.due_date ? ` · Vence ${fmtDateShort(row.due_date)}` : ""}
+            {row.receipt_url ? (
+              <>
+                {" · "}
+                <a href={row.receipt_url} target="_blank" rel="noreferrer" className="dash-receipt-link">
+                  Comprobante
+                </a>
+              </>
+            ) : null}
           </p>
           <div className="dash-exp-card-actions">
-            <button type="button" className="dash-link-btn" onClick={() => setEditing(row)}>
-              Editar
-            </button>
-            <button type="button" className="dash-link-btn dash-link-btn--muted" onClick={() => handleDelete(row.id)}>
-              Eliminar
-            </button>
+            {row.pending_sync ? (
+              <button type="button" className="dash-link-btn dash-link-btn--muted" onClick={() => handleDelete(row.id)}>
+                Quitar de cola
+              </button>
+            ) : (
+              <>
+                <button type="button" className="dash-link-btn" onClick={() => setEditing(row)}>
+                  Editar
+                </button>
+                <button type="button" className="dash-link-btn dash-link-btn--muted" onClick={() => handleDelete(row.id)}>
+                  Eliminar
+                </button>
+              </>
+            )}
           </div>
         </article>
       );
@@ -352,10 +531,28 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
   return (
     <main className="dash-shell">
       <DatabaseSetupHint message={err} />
+      {(dataFromCache || pendingCreates.length > 0) && (
+        <div className="dash-offline-banner" role="status">
+          {dataFromCache ? (
+            <p>
+              <strong>Sin conexión o sin respuesta del servidor.</strong> Mostrando datos guardados en este dispositivo
+              (última sincronización de esta vista).
+            </p>
+          ) : null}
+          {pendingCreates.length > 0 ? (
+            <p>
+              <strong>{pendingCreates.length} movimiento(s) en cola</strong> para subir cuando haya red.
+              <button type="button" className="dash-offline-banner__btn" onClick={() => void syncPendingQueue()}>
+                Sincronizar ahora
+              </button>
+            </p>
+          ) : null}
+        </div>
+      )}
       {err && !isDatabaseSetupMessage(err) && <div className="dash-alert dash-alert--error">{err}</div>}
 
       {showDashboardWelcome && (
-        <section className="dash-welcome" aria-labelledby="dash-welcome-title">
+        <section className="dash-welcome dash-welcome--polish" aria-labelledby="dash-welcome-title">
           <div className="dash-welcome-top">
             <div>
               <p className="dash-welcome-eyebrow">Empezá tranquilo</p>
@@ -389,7 +586,18 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
         </section>
       )}
 
-      <div className="dash-hero">
+      {smartHints.length > 0 && (
+        <section className="dash-smart-strip" aria-label="Sugerencias">
+          <p className="dash-smart-strip-label">Resumen inteligente</p>
+          <ul className="dash-smart-strip-list">
+            {smartHints.map((h, i) => (
+              <li key={i}>{h}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <div className="dash-hero dash-hero--polish">
         <div className="dash-title-block">
           <h1>Gastos</h1>
           <p>
@@ -412,7 +620,13 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
             )}
           </div>
         </div>
-        <ExpenseForm token={token} lists={lists} onCreated={load} />
+        <ExpenseForm
+          token={token}
+          lists={lists}
+          userId={userId}
+          onCreated={load}
+          onPendingChange={refreshPending}
+        />
       </div>
 
       <div className="dash-tabs" role="tablist" aria-label="Vista de gastos">
@@ -640,6 +854,7 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
                       <th>Nota</th>
                       <th>Vence</th>
                       <th>Lista</th>
+                      <th>Compr.</th>
                       <th />
                     </tr>
                   </thead>

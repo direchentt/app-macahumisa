@@ -8,6 +8,7 @@ import { BudgetsPage } from "./pages/BudgetsPage";
 import { SharedListsPage } from "./pages/SharedListsPage";
 import { GoalsPage } from "./pages/GoalsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { HistoryPage } from "./pages/HistoryPage";
 import { Header, type AppView } from "./components/Header";
 import { Onboarding } from "./components/Onboarding";
 import { isOnboardingComplete, setOnboardingComplete } from "./lib/onboardingStorage";
@@ -96,6 +97,7 @@ export default function App() {
         {view === "budgets" && <BudgetsPage />}
         {view === "goals" && <GoalsPage />}
         {view === "lists" && <SharedListsPage />}
+        {view === "history" && <HistoryPage />}
         {view === "settings" && <SettingsPage />}
       </main>
     </div>

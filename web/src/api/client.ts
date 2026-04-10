@@ -6,7 +6,28 @@ export type ApiErrorBody = {
   error?: string | Record<string, unknown>;
   detail?: string;
   request_id?: string;
+  duplicate?: { id: string; date: string };
 };
+
+export class ApiError extends Error {
+  readonly status: number;
+  readonly body: unknown;
+
+  constructor(message: string, status: number, body: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
+/** Fallo de red o sin respuesta HTTP (sirve para modo offline y cola de envío). */
+export class NetworkFailure extends Error {
+  constructor(message: string, cause?: unknown) {
+    super(message, cause !== undefined ? { cause } : undefined);
+    this.name = "NetworkFailure";
+  }
+}
 
 function appendDetail(msg: string, data: ApiErrorBody): string {
   const d = data.detail;
@@ -107,9 +128,10 @@ export async function apiFetch<T>(
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, { ...rest, headers });
-  } catch {
-    throw new Error(
+  } catch (cause) {
+    throw new NetworkFailure(
       "No se pudo conectar con el servidor. Comprobá tu conexión y que la API esté en marcha (desarrollo: puerto 3000).",
+      cause,
     );
   }
   const text = await res.text();
@@ -131,7 +153,7 @@ export async function apiFetch<T>(
     }
   }
   if (!res.ok) {
-    throw new Error(parseError(data, res.status, res.statusText));
+    throw new ApiError(parseError(data, res.status, res.statusText), res.status, data);
   }
   return (data ?? {}) as T;
 }
@@ -190,7 +212,10 @@ export type Expense = {
   is_income: boolean;
   shared_list_id: string | null;
   due_date: string | null;
+  receipt_url: string | null;
   created_at: string;
+  /** Solo UI: movimiento en cola offline, aún no confirmado en el servidor */
+  pending_sync?: boolean;
 };
 
 export type ExpenseListQuery = {
@@ -238,7 +263,15 @@ export async function exportExpensesCsv(token: string, query: Omit<ExpenseListQu
   if (query.q?.trim()) p.set("q", query.q.trim());
   const qs = p.toString();
   const path = `/expenses/export/csv${qs ? `?${qs}` : ""}`;
-  const res = await fetch(`${API_BASE}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+  } catch (cause) {
+    throw new NetworkFailure(
+      "No se pudo conectar con el servidor para exportar el CSV. Comprobá tu conexión.",
+      cause,
+    );
+  }
   if (!res.ok) {
     const text = await res.text();
     let data = {} as ApiErrorBody;
@@ -247,7 +280,7 @@ export async function exportExpensesCsv(token: string, query: Omit<ExpenseListQu
     } catch {
       /* ignore */
     }
-    throw new Error(parseError(data, res.status, res.statusText));
+    throw new ApiError(parseError(data, res.status, res.statusText), res.status, data);
   }
   return res.blob();
 }
@@ -268,6 +301,7 @@ export async function updateExpense(
     is_income: boolean;
     shared_list_id: string | null;
     due_date: string | null;
+    receipt_url: string | null;
   }>,
 ) {
   return apiFetch<{ expense: Expense }>(`/expenses/${id}`, token, { method: "PATCH", json: body });
@@ -284,6 +318,8 @@ export async function createExpense(
     is_income?: boolean;
     shared_list_id?: string | null;
     due_date?: string | null;
+    receipt_url?: string | null;
+    force_duplicate?: boolean;
   },
 ) {
   return apiFetch<{ expense: Expense }>("/expenses", token, { method: "POST", json: body });
@@ -522,4 +558,40 @@ export async function putWebhook(token: string, url: string) {
 
 export async function deleteWebhook(token: string) {
   await apiFetch<unknown>("/webhooks", token, { method: "DELETE" });
+}
+
+export type AuditLogEntry = {
+  id: string;
+  actor_user_id: string;
+  actor_email: string | null;
+  entity_id: string;
+  action: string;
+  summary: string;
+  changes: unknown;
+  created_at: string;
+};
+
+export async function listAuditLog(token: string, opts?: { limit?: number; offset?: number }) {
+  const p = new URLSearchParams();
+  if (opts?.limit != null) p.set("limit", String(opts.limit));
+  if (opts?.offset != null) p.set("offset", String(opts.offset));
+  const qs = p.toString();
+  return apiFetch<{ entries: AuditLogEntry[] }>(`/audit${qs ? `?${qs}` : ""}`, token);
+}
+
+export type BackupPayload = {
+  backup_version: number;
+  exported_at: string;
+  user: PublicUser;
+  expenses: unknown[];
+  budgets: unknown[];
+  savings_goals: unknown[];
+  shared_lists: unknown[];
+  category_rules: unknown[];
+  webhook: { url: string; created_at?: string; updated_at?: string } | null;
+  memberships: unknown[];
+};
+
+export async function fetchBackupJson(token: string) {
+  return apiFetch<BackupPayload>("/users/me/backup", token);
 }

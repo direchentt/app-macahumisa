@@ -10,7 +10,7 @@ type Props = {
 const STEPS: { title: string; body: string; hint?: string }[] = [
   {
     title: "Te damos la bienvenida",
-    body: "En un minuto vas a saber cómo moverte por Macahumisa. Podés saltar en cualquier momento con el botón de abajo.",
+    body: "En un minuto vas a saber cómo moverte por MACAHUMISA. Podés saltar en cualquier momento con el botón de abajo.",
     hint: "Esc cierra el tour sin marcarlo como visto; «Saltar tour» sí lo marca para tu usuario.",
   },
   {

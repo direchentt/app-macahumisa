@@ -33,6 +33,16 @@ export function IconLogo(props: IconProps) {
   return iconWrap(<path d="M3 17h3.5l3-9 4 7 3.5-11H21" />, props);
 }
 
+export function IconHistory(props: IconProps) {
+  return iconWrap(
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </>,
+    props,
+  );
+}
+
 export function IconHome(props: IconProps) {
   return iconWrap(
     <>

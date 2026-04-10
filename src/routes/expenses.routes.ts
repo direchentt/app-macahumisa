@@ -11,22 +11,19 @@ import {
 import { notifySharedExpenseCreated } from "../services/notifySharedExpense.js";
 import { pickCategoryFromRules } from "../lib/categoryRuleMatch.js";
 import { dispatchUserWebhook } from "../services/dispatchUserWebhook.js";
+import { EXPENSE_VISIBILITY_SQL } from "../lib/expenseVisibilitySql.js";
+import type { RequestWithId } from "../middleware/requestId.js";
+import {
+  expenseSnapshotForAudit,
+  expenseUpdateDiff,
+  logExpenseAuditSafe,
+  summarizeExpenseCreate,
+  summarizeExpenseDelete,
+  summarizeExpenseUpdate,
+  type ExpenseAuditRow,
+} from "../lib/expenseAudit.js";
 
 const uuid = z.string().uuid();
-
-/** Visibilidad: personales del usuario o gastos de listas donde participa. Usa $1 = userId JWT. */
-const EXPENSE_VISIBILITY_SQL = `(
-  (e.shared_list_id IS NULL AND e.user_id = $1)
-  OR (
-    e.shared_list_id IS NOT NULL
-    AND EXISTS (
-      SELECT 1 FROM shared_lists sl
-      LEFT JOIN memberships m ON m.list_id = sl.id AND m.user_id = $1
-      WHERE sl.id = e.shared_list_id
-        AND (sl.owner_id = $1 OR m.user_id IS NOT NULL)
-    )
-  )
-)`;
 
 const listQuery = z.object({
   from: z.string().optional(),
@@ -39,6 +36,20 @@ const listQuery = z.object({
   limit: z.coerce.number().int().min(1).max(250).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });
+
+const receiptUrlField = z.preprocess(
+  (v) => (v === "" ? null : v),
+  z
+    .union([
+      z.string().url(),
+      z
+        .string()
+        .max(750_000)
+        .regex(/^data:image\/jpeg;base64,/),
+    ])
+    .optional()
+    .nullable(),
+);
 
 const createExpense = z
   .object({
@@ -54,15 +65,17 @@ const createExpense = z
     is_recurring: z.boolean().optional(),
     recurring_frequency: z.string().max(20).optional().nullable(),
     merchant: z.string().max(255).optional().nullable(),
-    receipt_url: z.string().url().optional().nullable(),
+    receipt_url: receiptUrlField,
     status: z.string().max(20).optional().nullable(),
     shared_with: z.array(z.string()).optional(),
     shared_list_id: z.string().uuid().optional().nullable(),
     due_date: z.string().optional().nullable(),
+    /** Si el servidor detecta duplicado el mismo día, reenviar con true para guardar igual. */
+    force_duplicate: z.boolean().optional(),
   })
   .strict();
 
-const patchExpense = createExpense.partial();
+const patchExpense = createExpense.partial().omit({ force_duplicate: true });
 
 const expenseSelect = `e.id, e.user_id, e.amount::text, e.currency, e.category, e.description, e.date, e.tags, e.notes, e.source,
   e.is_income, e.is_recurring, e.recurring_frequency, e.merchant, e.receipt_url, e.status, e.shared_with,
@@ -96,6 +109,30 @@ export type ExpenseRow = {
   updated_at: string;
   deleted_at: string | null;
 };
+
+async function findSameDayDuplicate(
+  pool: Pool,
+  userId: string,
+  amount: number,
+  currency: string,
+  isIncome: boolean,
+  sharedListId: string | null,
+  dateIso: string,
+): Promise<{ id: string; date: string } | null> {
+  const d = new Date(dateIso);
+  if (Number.isNaN(d.getTime())) return null;
+  const { rows } = await pool.query<{ id: string; date: string }>(
+    `SELECT id, date::text AS date FROM expenses
+     WHERE deleted_at IS NULL AND user_id = $1
+       AND amount = $2 AND UPPER(TRIM(currency)) = UPPER(TRIM($3))
+       AND is_income = $4
+       AND shared_list_id IS NOT DISTINCT FROM $5::uuid
+       AND (date AT TIME ZONE 'UTC')::date = ($6::timestamptz AT TIME ZONE 'UTC')::date
+     LIMIT 1`,
+    [userId, amount, currency, isIncome, sharedListId, d.toISOString()],
+  );
+  return rows[0] ?? null;
+}
 
 type ListFilters = {
   from?: string;
@@ -312,6 +349,27 @@ export function expensesRouter(pool: Pool, env: Env) {
       categoryVal = pickCategoryFromRules(ruleRows, b.description, b.notes);
     }
 
+    const isInc = b.is_income ?? false;
+    if (!b.force_duplicate) {
+      const dup = await findSameDayDuplicate(
+        pool,
+        userId,
+        b.amount,
+        b.currency,
+        isInc,
+        sharedListId,
+        dateVal.toISOString(),
+      );
+      if (dup) {
+        res.status(409).json({
+          error:
+            "Ya tenés un movimiento con el mismo importe y moneda en este día. Si es otro gasto distinto, confirmá para guardarlo igual.",
+          duplicate: { id: dup.id, date: dup.date },
+        });
+        return;
+      }
+    }
+
     const { rows } = await pool.query<ExpenseRow>(
       `INSERT INTO expenses (
          user_id, amount, currency, category, description, date, tags, notes, source,
@@ -330,7 +388,7 @@ export function expensesRouter(pool: Pool, env: Env) {
         b.tags ?? null,
         b.notes ?? null,
         b.source ?? null,
-        b.is_income ?? false,
+        isInc,
         b.is_recurring ?? false,
         b.recurring_frequency ?? null,
         b.merchant ?? null,
@@ -364,6 +422,14 @@ export function expensesRouter(pool: Pool, env: Env) {
         date: expense.date,
         is_income: expense.is_income,
         shared_list_id: expense.shared_list_id,
+      });
+      logExpenseAuditSafe(pool, {
+        actorUserId: userId,
+        entityId: expense.id,
+        action: "create",
+        summary: summarizeExpenseCreate(expense as ExpenseAuditRow),
+        changes: { snapshot: expenseSnapshotForAudit(expense as ExpenseAuditRow) },
+        requestId: (req as RequestWithId).requestId,
       });
     }
     res.status(201).json({ expense });
@@ -452,6 +518,17 @@ export function expensesRouter(pool: Pool, env: Env) {
       res.status(404).json({ error: "Gasto no encontrado" });
       return;
     }
+    const diff = expenseUpdateDiff(existing as ExpenseAuditRow, row as ExpenseAuditRow, keys as string[]);
+    if (Object.keys(diff).length > 0) {
+      logExpenseAuditSafe(pool, {
+        actorUserId: userId,
+        entityId: row.id,
+        action: "update",
+        summary: summarizeExpenseUpdate(diff),
+        changes: { diff },
+        requestId: (req as RequestWithId).requestId,
+      });
+    }
     res.json({ expense: row });
   });
 
@@ -462,20 +539,18 @@ export function expensesRouter(pool: Pool, env: Env) {
       return;
     }
     const { userId } = req as AuthedRequest;
-    const { rows: existingRows } = await pool.query<{
-      user_id: string;
-      shared_list_id: string | null;
-    }>(
-      `SELECT e.user_id, e.shared_list_id FROM expenses e
+    const { rows: existingRows } = await pool.query<ExpenseRow>(
+      `SELECT ${expenseSelect}
+       FROM expenses e
        WHERE e.id = $2 AND e.deleted_at IS NULL AND ${EXPENSE_VISIBILITY_SQL}`,
       [userId, idParse.data],
     );
-    const existing = existingRows[0];
-    if (!existing) {
+    const existingRow = existingRows[0];
+    if (!existingRow) {
       res.status(404).json({ error: "Gasto no encontrado" });
       return;
     }
-    if (!(await canMutateExpense(pool, userId, existing))) {
+    if (!(await canMutateExpense(pool, userId, existingRow))) {
       res.status(403).json({ error: "No tenés permiso para eliminar este gasto" });
       return;
     }
@@ -488,6 +563,14 @@ export function expensesRouter(pool: Pool, env: Env) {
       res.status(404).json({ error: "Gasto no encontrado" });
       return;
     }
+    logExpenseAuditSafe(pool, {
+      actorUserId: userId,
+      entityId: idParse.data,
+      action: "delete",
+      summary: summarizeExpenseDelete(existingRow as ExpenseAuditRow),
+      changes: { snapshot: expenseSnapshotForAudit(existingRow as ExpenseAuditRow) },
+      requestId: (req as RequestWithId).requestId,
+    });
     res.status(204).send();
   });
 

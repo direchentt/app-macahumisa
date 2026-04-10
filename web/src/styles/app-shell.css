@@ -27,6 +27,8 @@
 
 .app-header-brand-text {
   display: inline;
+  letter-spacing: 0.04em;
+  font-size: 0.98em;
 }
 
 .app-header-page-heading {

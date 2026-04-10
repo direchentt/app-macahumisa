@@ -289,3 +289,105 @@
   color: var(--text-muted);
   padding: 8px 0;
 }
+
+/* Historial de auditoría (gastos) */
+.history-audit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.history-audit-item {
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.history-audit-item-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.history-audit-pill {
+  font-size: 0.6875rem;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.history-audit-pill--create {
+  background: color-mix(in srgb, var(--brand-mint) 22%, var(--surface));
+  color: color-mix(in srgb, var(--brand-mint) 85%, var(--text));
+}
+
+.history-audit-pill--update {
+  background: color-mix(in srgb, var(--brand-blue) 18%, var(--surface));
+  color: color-mix(in srgb, var(--brand-blue) 80%, var(--text));
+}
+
+.history-audit-pill--delete {
+  background: var(--danger-dim);
+  color: var(--danger);
+}
+
+.history-audit-summary {
+  margin: 0 0 6px;
+  font-size: 0.9375rem;
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.history-audit-meta {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.history-audit-code {
+  font-size: 0.75rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-elevated);
+}
+
+.history-audit-toggle {
+  margin-top: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--cta);
+  font-size: 0.8125rem;
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.history-audit-pre {
+  margin: 12px 0 0;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  overflow-x: auto;
+  max-height: 280px;
+  overflow-y: auto;
+}
