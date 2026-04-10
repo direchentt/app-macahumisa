@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { IconLogo } from "../components/AppIcons";
+import { AvatarGlyphPicker } from "../components/AvatarGlyphPicker";
+import type { AvatarSlug } from "../lib/avatarOptions";
 
 export function LoginPage() {
   const { login, register } = useAuth();
@@ -9,6 +11,7 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+  const [avatarSlug, setAvatarSlug] = useState<AvatarSlug | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,7 +23,7 @@ export function LoginPage() {
       if (mode === "login") {
         await login(email, password);
       } else {
-        await register(email, password, firstName || undefined, lastName || undefined);
+        await register(email, password, firstName || undefined, lastName || undefined, avatarSlug);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error");
@@ -89,6 +92,14 @@ export function LoginPage() {
                   />
                 </label>
               </div>
+            )}
+            {mode === "register" && (
+              <AvatarGlyphPicker
+                idPrefix="auth-register"
+                value={avatarSlug}
+                onChange={setAvatarSlug}
+                disabled={loading}
+              />
             )}
             <label className="auth-label">
               <span>Email</span>

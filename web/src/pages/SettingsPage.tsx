@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
+import { AvatarGlyphPicker } from "../components/AvatarGlyphPicker";
+import type { AvatarSlug } from "../lib/avatarOptions";
 import { useToast } from "../contexts/ToastContext";
 import { DatabaseSetupHint } from "../components/DatabaseSetupHint";
 import { isDatabaseSetupMessage } from "../lib/isDatabaseSetupMessage";
@@ -27,7 +29,7 @@ const field = {
 } as const;
 
 export function SettingsPage() {
-  const { token } = useAuth();
+  const { token, user, setAvatarSlug } = useAuth();
   const { showToast } = useToast();
   const [rules, setRules] = useState<CategoryRule[]>([]);
   const [pattern, setPattern] = useState("");
@@ -156,6 +158,23 @@ export function SettingsPage() {
         crear un gasto (si dejaste categoría vacía). Webhook: recibís un POST JSON con{" "}
         <code style={{ fontSize: "0.85em" }}>event: &quot;expense.created&quot;</code> cada vez que cargás un gasto.
       </p>
+      {user ? (
+        <section className="settings-avatar-wrap" style={{ marginBottom: 32 }}>
+          <AvatarGlyphPicker
+            idPrefix="settings"
+            value={(user.avatar_slug as AvatarSlug | null) ?? null}
+            onChange={async (s) => {
+              try {
+                await setAvatarSlug(s);
+                showToast("Seña actualizada");
+              } catch (e) {
+                showToast(e instanceof Error ? e.message : "No se pudo guardar");
+              }
+            }}
+          />
+        </section>
+      ) : null}
+
       <DatabaseSetupHint message={err} />
       {err && !isDatabaseSetupMessage(err) && (
         <p style={{ padding: 12, borderRadius: "var(--radius-sm)", background: "rgba(242,139,130,0.12)", color: "var(--danger)" }}>

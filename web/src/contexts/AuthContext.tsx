@@ -17,10 +17,17 @@ type AuthContextValue = {
   user: PublicUser | null;
   ready: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, firstName?: string, lastName?: string) => Promise<void>;
+  register: (
+    email: string,
+    password: string,
+    firstName?: string,
+    lastName?: string,
+    avatarSlug?: string | null,
+  ) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
   setDarkMode: (dark: boolean) => Promise<void>;
+  setAvatarSlug: (slug: string | null) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -81,8 +88,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(data.access_token);
   }, []);
 
-  const register = useCallback(async (e: string, p: string, firstName?: string, lastName?: string) => {
-    const data = await registerRequest(e, p, firstName, lastName);
+  const register = useCallback(async (e: string, p: string, firstName?: string, lastName?: string, avatarSlug?: string | null) => {
+    const data = await registerRequest(e, p, firstName, lastName, avatarSlug ?? undefined);
     localStorage.setItem(STORAGE_KEY, data.access_token);
     setUserId(data.user.id);
     setEmail(data.user.email);
@@ -118,6 +125,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [token],
   );
 
+  const setAvatarSlug = useCallback(
+    async (slug: string | null) => {
+      if (!token) return;
+      const d = await patchMe(token, { avatar_slug: slug });
+      setUser(d.user);
+    },
+    [token],
+  );
+
   const value: AuthContextValue = {
     token,
     userId,
@@ -129,6 +145,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     logout,
     refreshUser,
     setDarkMode,
+    setAvatarSlug,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -5,6 +5,9 @@ import type { Env } from "../config/env.js";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
 import { EXPENSE_VISIBILITY_SQL } from "../lib/expenseVisibilitySql.js";
 import { importUserBackup } from "../services/importUserBackup.js";
+import { AVATAR_SLUGS_FOR_ZOD } from "../lib/avatarOptions.js";
+
+const avatarSlugField = z.enum(AVATAR_SLUGS_FOR_ZOD);
 
 const EXPENSE_BACKUP_SELECT = `e.id, e.user_id, e.amount::text, e.currency, e.category, e.description, e.date::text, e.tags, e.notes, e.source,
   e.is_income, e.is_recurring, e.recurring_frequency, e.merchant, e.receipt_url, e.status, e.shared_with,
@@ -19,6 +22,7 @@ const patchMe = z
     language: z.string().max(10).nullable().optional(),
     dark_mode: z.boolean().optional(),
     profile_picture_url: z.string().url().nullable().optional(),
+    avatar_slug: z.union([avatarSlugField, z.null()]).optional(),
   })
   .strict();
 
@@ -28,6 +32,7 @@ export type PublicUser = {
   first_name: string | null;
   last_name: string | null;
   profile_picture_url: string | null;
+  avatar_slug: string | null;
   currency: string;
   timezone: string | null;
   language: string | null;
@@ -43,7 +48,7 @@ export function usersRouter(pool: Pool, env: Env) {
   r.get("/me", auth, async (req, res) => {
     const { userId } = req as AuthedRequest;
     const { rows } = await pool.query<PublicUser & { deleted_at: Date | null }>(
-      `SELECT id, email, first_name, last_name, profile_picture_url, currency, timezone, language,
+      `SELECT id, email, first_name, last_name, profile_picture_url, avatar_slug, currency, timezone, language,
               dark_mode, created_at, updated_at, deleted_at
        FROM users WHERE id = $1`,
       [userId],
@@ -80,7 +85,7 @@ export function usersRouter(pool: Pool, env: Env) {
     setParts.push(`updated_at = now()`);
     values.push(userId);
     const sql = `UPDATE users SET ${setParts.join(", ")} WHERE id = $${i} AND deleted_at IS NULL
-                 RETURNING id, email, first_name, last_name, profile_picture_url, currency, timezone, language,
+                 RETURNING id, email, first_name, last_name, profile_picture_url, avatar_slug, currency, timezone, language,
                            dark_mode, created_at, updated_at`;
     const { rows } = await pool.query<PublicUser>(sql, values);
     const u = rows[0];
@@ -106,7 +111,7 @@ export function usersRouter(pool: Pool, env: Env) {
       membershipRows,
     ] = await Promise.all([
       pool.query<PublicUser>(
-        `SELECT id, email, first_name, last_name, profile_picture_url, currency, timezone, language, dark_mode, created_at, updated_at
+        `SELECT id, email, first_name, last_name, profile_picture_url, avatar_slug, currency, timezone, language, dark_mode, created_at, updated_at
          FROM users WHERE id = $1 AND deleted_at IS NULL`,
         [userId],
       ),

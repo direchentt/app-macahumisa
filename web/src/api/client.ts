@@ -171,11 +171,14 @@ export async function registerRequest(
   password: string,
   first_name?: string,
   last_name?: string,
+  avatar_slug?: string | null,
 ) {
+  const json: Record<string, unknown> = { email, password, first_name, last_name };
+  if (avatar_slug !== undefined && avatar_slug !== null) json.avatar_slug = avatar_slug;
   return apiFetch<{ user: { id: string; email: string }; access_token: string }>(
     "/auth/register",
     null,
-    { method: "POST", json: { email, password, first_name, last_name } },
+    { method: "POST", json },
   );
 }
 
@@ -185,6 +188,7 @@ export type PublicUser = {
   first_name: string | null;
   last_name: string | null;
   profile_picture_url: string | null;
+  avatar_slug: string | null;
   currency: string;
   timezone: string | null;
   language: string | null;
@@ -197,7 +201,15 @@ export async function meRequest(token: string) {
   return apiFetch<{ user: PublicUser }>("/users/me", token);
 }
 
-export async function patchMe(token: string, body: { dark_mode?: boolean; first_name?: string | null; last_name?: string | null }) {
+export async function patchMe(
+  token: string,
+  body: {
+    dark_mode?: boolean;
+    first_name?: string | null;
+    last_name?: string | null;
+    avatar_slug?: string | null;
+  },
+) {
   return apiFetch<{ user: PublicUser }>("/users/me", token, { method: "PATCH", json: body });
 }
 

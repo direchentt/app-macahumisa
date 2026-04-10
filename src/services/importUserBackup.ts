@@ -10,6 +10,7 @@ const backupUserSchema = z
     first_name: z.string().nullable().optional(),
     last_name: z.string().nullable().optional(),
     profile_picture_url: z.string().nullable().optional(),
+    avatar_slug: z.string().max(32).nullable().optional(),
     currency: z.string().length(3).optional(),
     timezone: z.string().nullable().optional(),
     language: z.string().nullable().optional(),

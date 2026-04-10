@@ -5,12 +5,16 @@ import type { Pool } from "pg";
 import type { Env } from "../config/env.js";
 import { signAccessToken } from "../lib/jwt.js";
 import { loginRateLimiter, registerRateLimiter } from "../middleware/rateLimit.js";
+import { AVATAR_SLUGS_FOR_ZOD } from "../lib/avatarOptions.js";
+
+const avatarSlugField = z.enum(AVATAR_SLUGS_FOR_ZOD);
 
 const registerBody = z.object({
   email: z.string().email(),
   password: z.string().min(8, "La contraseña debe tener al menos 8 caracteres"),
   first_name: z.string().max(100).optional(),
   last_name: z.string().max(100).optional(),
+  avatar_slug: avatarSlugField.optional(),
 });
 
 const loginBody = z.object({
@@ -27,14 +31,14 @@ export function authRouter(pool: Pool, env: Env) {
       res.status(400).json({ error: parsed.error.flatten() });
       return;
     }
-    const { email, password, first_name, last_name } = parsed.data;
+    const { email, password, first_name, last_name, avatar_slug } = parsed.data;
     const password_hash = await bcrypt.hash(password, 12);
     try {
       const { rows } = await pool.query<{ id: string }>(
-        `INSERT INTO users (email, password_hash, first_name, last_name)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO users (email, password_hash, first_name, last_name, avatar_slug)
+         VALUES ($1, $2, $3, $4, $5)
          RETURNING id`,
-        [email.toLowerCase(), password_hash, first_name ?? null, last_name ?? null],
+        [email.toLowerCase(), password_hash, first_name ?? null, last_name ?? null, avatar_slug ?? null],
       );
       const id = rows[0].id;
       const token = signAccessToken(env, { sub: id, email: email.toLowerCase() });

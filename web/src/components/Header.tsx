@@ -15,6 +15,7 @@ import {
   IconTarget,
   IconUsers,
 } from "./AppIcons";
+import { UserAvatarChip } from "./UserAvatarChip";
 
 export type AppView = "dashboard" | "notifications" | "budgets" | "lists" | "goals" | "settings" | "history";
 
@@ -99,7 +100,10 @@ export function Header({ unreadNotifications, view, onNavigate, onOpenTour }: Pr
                 {dark ? <IconSun className="app-header-icon-btn__svg" /> : <IconMoon className="app-header-icon-btn__svg" />}
               </button>
             )}
-            <span className="app-user-email app-user-email--desktop-only">{email}</span>
+            <div className="app-header-user-pill app-header-user-pill--desktop">
+              <UserAvatarChip email={email} avatarSlug={user?.avatar_slug} size="sm" />
+              <span className="app-user-email">{email}</span>
+            </div>
             <button type="button" onClick={logout} className="app-header-icon-btn app-header-icon-btn--danger" title="Salir" aria-label="Cerrar sesión">
               <IconSignOut className="app-header-icon-btn__svg" />
             </button>
@@ -193,7 +197,10 @@ export function Header({ unreadNotifications, view, onNavigate, onOpenTour }: Pr
             <h2 id="app-more-title" className="app-more__title">
               Más opciones
             </h2>
-            <p className="app-more__email">{email}</p>
+            <div className="app-more__user-row">
+              <UserAvatarChip email={email} avatarSlug={user?.avatar_slug} size="md" />
+              <p className="app-more__email">{email}</p>
+            </div>
             <div className="app-more__actions">
               <button type="button" className="app-more__row" onClick={() => go("notifications")}>
                 <IconBell className="app-more__row-icon" />
