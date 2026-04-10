@@ -10,7 +10,9 @@
     "start": "node dist/index.js",
     "db:migrate": "tsx scripts/migrate.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "dev:web": "npm run dev --prefix web",
+    "build:web": "npm run build --prefix web"
   },
   "engines": {
     "node": ">=20"
