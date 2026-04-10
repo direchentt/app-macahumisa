@@ -100,7 +100,9 @@ export function createApp(env: Env, pool: Pool) {
       return;
     }
     const body = mapServerError(err, env.NODE_ENV === "development");
-    res.status(500).json({ ...body, request_id: rid });
+    const errorMsg =
+      typeof body.error === "string" && body.error.trim() ? body.error.trim() : "Error interno del servidor.";
+    res.status(500).json({ ...body, error: errorMsg, request_id: rid });
   });
 
   return app;

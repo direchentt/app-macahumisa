@@ -66,6 +66,11 @@ function parseError(data: ApiErrorBody | null | undefined, status: number, statu
   if (typeof d.detail === "string" && d.detail.trim()) {
     return appendRequestId(d.detail.trim(), d);
   }
+  /* Algunos proxies devuelven { message: "..." } */
+  const rawMsg = (d as { message?: string }).message;
+  if (typeof rawMsg === "string" && rawMsg.trim() && rawMsg !== "Internal Server Error") {
+    return appendRequestId(rawMsg.trim(), d);
+  }
   if (status === 502 || status === 503 || status === 504) {
     return appendRequestId(
       "No hubo respuesta del servidor. En desarrollo levantá la API en el puerto 3000 (npm run dev en la raíz del proyecto).",
@@ -73,7 +78,11 @@ function parseError(data: ApiErrorBody | null | undefined, status: number, statu
     );
   }
   if (status >= 500) {
-    const fallback = statusText ? `Error del servidor (${status}: ${statusText})` : `Error del servidor (${status})`;
+    const hint =
+      " Revisá PostgreSQL y las migraciones (npm run db:migrate). Diagnóstico: en el navegador abrí /health/db en la misma URL del sitio.";
+    const fallback = statusText
+      ? `Error del servidor (${status}: ${statusText}).${hint}`
+      : `Error del servidor (${status}).${hint}`;
     return appendRequestId(fallback, d);
   }
   if (status > 0) {

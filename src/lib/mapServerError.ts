@@ -1,6 +1,24 @@
 /** Mensajes seguros para el cliente ante fallos típicos de PostgreSQL / red. */
+
+function unwrapErr(err: unknown): { code?: string; message?: string } {
+  if (err === null || err === undefined) {
+    return {};
+  }
+  const e = err as { code?: string; message?: string; cause?: unknown; errors?: unknown[] };
+  if (e.cause !== undefined && e.cause !== null) {
+    return unwrapErr(e.cause);
+  }
+  if (Array.isArray(e.errors) && e.errors.length > 0) {
+    return unwrapErr(e.errors[0]);
+  }
+  return { code: typeof e.code === "string" ? e.code : undefined, message: typeof e.message === "string" ? e.message : undefined };
+}
+
+/** Mensajes seguros para el cliente ante fallos típicos de PostgreSQL / red. */
 export function mapServerError(err: unknown, isDev: boolean): { error: string; detail?: string } {
-  const e = err as { code?: string; message?: string };
+  const { code, message } = unwrapErr(err);
+  const e = { code, message };
+  const msgLower = (e.message ?? "").toLowerCase();
 
   if (e.code === "42P01") {
     return {
@@ -8,7 +26,6 @@ export function mapServerError(err: unknown, isDev: boolean): { error: string; d
         "La base de datos no tiene las tablas necesarias. En la carpeta del proyecto ejecutá en una terminal: npm run db:migrate",
     };
   }
-  const msgLower = (e.message ?? "").toLowerCase();
   if (msgLower.includes("relation") && msgLower.includes("does not exist")) {
     return {
       error:
@@ -29,10 +46,14 @@ export function mapServerError(err: unknown, isDev: boolean): { error: string; d
     };
   }
 
-  if (e.code === "3D000") {
+  if (e.code === "3D000" || (msgLower.includes("database") && msgLower.includes("does not exist"))) {
     return { error: "La base de datos indicada en DATABASE_URL no existe o el nombre es incorrecto." };
   }
-  if (e.code === "28P01") {
+  if (
+    e.code === "28P01" ||
+    msgLower.includes("password authentication failed") ||
+    msgLower.includes("authentication failed")
+  ) {
     return { error: "Usuario o contraseña de PostgreSQL incorrectos (revisá DATABASE_URL)." };
   }
   if (e.code === "ECONNREFUSED") {
@@ -41,7 +62,7 @@ export function mapServerError(err: unknown, isDev: boolean): { error: string; d
         "No hay conexión con PostgreSQL. Comprobá que el servidor esté en marcha y el puerto en DATABASE_URL.",
     };
   }
-  if (e.code === "ENETUNREACH" || msgLower.includes("enetunreach")) {
+  if (e.code === "ENETUNREACH" || e.code === "EHOSTUNREACH" || msgLower.includes("enetunreach")) {
     return {
       error:
         "No se alcanza el servidor de la base (red o IPv6). En Railway usá la URL interna de Postgres del mismo proyecto o el hostname pooler de tu proveedor; el código ya prioriza IPv4 al arrancar.",
@@ -50,8 +71,20 @@ export function mapServerError(err: unknown, isDev: boolean): { error: string; d
   if (e.code === "ENOTFOUND") {
     return { error: "No se resuelve el host de la base de datos. Revisá DATABASE_URL." };
   }
-  if (e.code === "ETIMEDOUT") {
+  if (e.code === "ETIMEDOUT" || msgLower.includes("timeout")) {
     return { error: "Tiempo de espera agotado al conectar con la base de datos." };
+  }
+  if (
+    msgLower.includes("ssl") ||
+    msgLower.includes("certificate") ||
+    msgLower.includes("tls") ||
+    e.code === "DEPTH_ZERO_SELF_SIGNED_CERT" ||
+    e.code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE"
+  ) {
+    return {
+      error:
+        "Problema de SSL/TLS con PostgreSQL. Probá agregar a DATABASE_URL: ?sslmode=require (o sslmode=no-verify solo para pruebas).",
+    };
   }
 
   if (isDev && err instanceof Error && err.message) {

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import type { Pool } from "pg";
+import { mapServerError } from "../lib/mapServerError.js";
 
 export function healthRouter(pool: Pool) {
   const r = Router();
@@ -12,8 +13,9 @@ export function healthRouter(pool: Pool) {
     try {
       await pool.query("SELECT 1");
       res.json({ ok: true, database: "up" });
-    } catch {
-      res.status(503).json({ ok: false, database: "down" });
+    } catch (e) {
+      const { error } = mapServerError(e, false);
+      res.status(503).json({ ok: false, database: "down", error });
     }
   });
 
