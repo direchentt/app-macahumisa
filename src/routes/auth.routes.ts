@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { Pool } from "pg";
 import type { Env } from "../config/env.js";
 import { signAccessToken } from "../lib/jwt.js";
+import { loginRateLimiter, registerRateLimiter } from "../middleware/rateLimit.js";
 
 const registerBody = z.object({
   email: z.string().email(),
@@ -20,7 +21,7 @@ const loginBody = z.object({
 export function authRouter(pool: Pool, env: Env) {
   const r = Router();
 
-  r.post("/register", async (req, res) => {
+  r.post("/register", registerRateLimiter, async (req, res) => {
     const parsed = registerBody.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: parsed.error.flatten() });
@@ -48,7 +49,7 @@ export function authRouter(pool: Pool, env: Env) {
     }
   });
 
-  r.post("/login", async (req, res) => {
+  r.post("/login", loginRateLimiter, async (req, res) => {
     const parsed = loginBody.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: parsed.error.flatten() });

@@ -8,9 +8,13 @@ import { authRouter } from "./routes/auth.routes.js";
 import { usersRouter } from "./routes/users.routes.js";
 import { expensesRouter } from "./routes/expenses.routes.js";
 import { budgetsRouter } from "./routes/budgets.routes.js";
+import { sharedListsRouter } from "./routes/shared-lists.routes.js";
 
 export function createApp(env: Env, pool: Pool) {
   const app = express();
+  if (env.NODE_ENV === "production") {
+    app.set("trust proxy", 1);
+  }
   app.use(helmet());
   app.use(cors());
   app.use(express.json({ limit: "1mb" }));
@@ -27,6 +31,7 @@ export function createApp(env: Env, pool: Pool) {
         me: "GET /api/v1/users/me (Bearer)",
         expenses: "/api/v1/expenses (Bearer)",
         budgets: "/api/v1/budgets (Bearer)",
+        sharedLists: "/api/v1/shared-lists (Bearer)",
       },
     });
   });
@@ -36,6 +41,7 @@ export function createApp(env: Env, pool: Pool) {
   app.use("/api/v1/users", usersRouter(pool, env));
   app.use("/api/v1/expenses", expensesRouter(pool, env));
   app.use("/api/v1/budgets", budgetsRouter(pool, env));
+  app.use("/api/v1/shared-lists", sharedListsRouter(pool, env));
 
   app.use((_req, res) => {
     res.status(404).json({ error: "No encontrado" });
