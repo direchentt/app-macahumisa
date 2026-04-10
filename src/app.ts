@@ -9,6 +9,7 @@ import { usersRouter } from "./routes/users.routes.js";
 import { expensesRouter } from "./routes/expenses.routes.js";
 import { budgetsRouter } from "./routes/budgets.routes.js";
 import { sharedListsRouter } from "./routes/shared-lists.routes.js";
+import { notificationsRouter } from "./routes/notifications.routes.js";
 
 export function createApp(env: Env, pool: Pool) {
   const app = express();
@@ -32,6 +33,7 @@ export function createApp(env: Env, pool: Pool) {
         expenses: "/api/v1/expenses (Bearer)",
         budgets: "/api/v1/budgets (Bearer)",
         sharedLists: "/api/v1/shared-lists (Bearer)",
+        notifications: "/api/v1/notifications (Bearer)",
       },
     });
   });
@@ -42,6 +44,7 @@ export function createApp(env: Env, pool: Pool) {
   app.use("/api/v1/expenses", expensesRouter(pool, env));
   app.use("/api/v1/budgets", budgetsRouter(pool, env));
   app.use("/api/v1/shared-lists", sharedListsRouter(pool, env));
+  app.use("/api/v1/notifications", notificationsRouter(pool, env));
 
   app.use((_req, res) => {
     res.status(404).json({ error: "No encontrado" });

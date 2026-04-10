@@ -8,6 +8,7 @@ import {
   canMutateExpense,
   getListAccess,
 } from "../lib/sharedListAccess.js";
+import { notifySharedExpenseCreated } from "../services/notifySharedExpense.js";
 
 const uuid = z.string().uuid();
 
@@ -211,7 +212,20 @@ export function expensesRouter(pool: Pool, env: Env) {
         sharedListId,
       ],
     );
-    res.status(201).json({ expense: rows[0] });
+    const expense = rows[0];
+    if (sharedListId && expense) {
+      void notifySharedExpenseCreated(pool, {
+        expense: {
+          id: expense.id,
+          amount: expense.amount,
+          currency: expense.currency,
+          category: expense.category,
+          shared_list_id: sharedListId,
+        },
+        actorUserId: userId,
+      }).catch((err) => console.error("notifySharedExpenseCreated", err));
+    }
+    res.status(201).json({ expense });
   });
 
   r.patch("/:id", auth, async (req, res) => {
