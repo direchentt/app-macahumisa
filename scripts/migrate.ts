@@ -46,6 +46,22 @@ try {
     );
   }
 
+  /* Si la base quedó inconsistente (migración marcada pero tabla borrada), volver a aplicar ese archivo. */
+  const { rows: usersOk } = await pool.query<{ ok: boolean }>(
+    `SELECT to_regclass('public.users') IS NOT NULL AS ok`,
+  );
+  if (!usersOk[0]?.ok) {
+    await pool.query(`DELETE FROM schema_migrations WHERE filename = '001_init.sql'`);
+    console.log("Aviso: no existe public.users — se volverá a ejecutar 001_init.sql.");
+  }
+  const { rows: goalsOk } = await pool.query<{ ok: boolean }>(
+    `SELECT to_regclass('public.savings_goals') IS NOT NULL AS ok`,
+  );
+  if (!goalsOk[0]?.ok) {
+    await pool.query(`DELETE FROM schema_migrations WHERE filename = '004_features.sql'`);
+    console.log("Aviso: faltan tablas de la migración 004 — se aplicará 004_features.sql de nuevo si corresponde.");
+  }
+
   for (const f of files) {
     const done = await pool.query(`SELECT 1 FROM schema_migrations WHERE filename = $1`, [f]);
     if (done.rowCount) {

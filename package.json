@@ -11,6 +11,7 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "dev:web": "npm run dev --prefix web",
     "build:web": "npm run build --prefix web",
     "build:all": "npm run build --prefix web && npm run build"
@@ -24,6 +25,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "express-async-errors": "^3.1.1",
     "express-rate-limit": "^8.3.2",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
@@ -31,6 +33,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",

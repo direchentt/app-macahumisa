@@ -1,3 +1,4 @@
+import "express-async-errors";
 import { loadEnv } from "./config/env.js";
 import { createPool } from "./db/pool.js";
 import { createApp } from "./app.js";

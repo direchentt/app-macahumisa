@@ -111,6 +111,42 @@ export function sharedListsRouter(pool: Pool, env: Env) {
     res.json({ members: rows });
   });
 
+  r.get("/:id/activity", auth, async (req, res) => {
+    const idParse = uuid.safeParse(req.params.id);
+    if (!idParse.success) {
+      res.status(400).json({ error: "id inválido" });
+      return;
+    }
+    const { userId } = req as AuthedRequest;
+    const access = await getListAccess(pool, idParse.data, userId);
+    if (!isListParticipant(access)) {
+      res.status(404).json({ error: "Lista no encontrada" });
+      return;
+    }
+    const { rows } = await pool.query<{
+      id: string;
+      amount: string;
+      currency: string;
+      category: string | null;
+      description: string | null;
+      date: string;
+      is_income: boolean;
+      created_at: string;
+      user_id: string;
+      email: string;
+    }>(
+      `SELECT e.id, e.amount::text, e.currency, e.category, e.description, e.date, e.is_income, e.created_at,
+              e.user_id, u.email
+       FROM expenses e
+       JOIN users u ON u.id = e.user_id AND u.deleted_at IS NULL
+       WHERE e.shared_list_id = $1 AND e.deleted_at IS NULL
+       ORDER BY e.created_at DESC
+       LIMIT 50`,
+      [idParse.data],
+    );
+    res.json({ activity: rows });
+  });
+
   r.post("/:id/members", auth, async (req, res) => {
     const idParse = uuid.safeParse(req.params.id);
     if (!idParse.success) {

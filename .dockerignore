@@ -1,11 +1,11 @@
 node_modules
-dist
 web/node_modules
+dist
 web/dist
-.git
 .env
-.env.*
-!.env.example
+.git
 *.log
 .DS_Store
-.github
+e2e
+playwright-report
+.cursor

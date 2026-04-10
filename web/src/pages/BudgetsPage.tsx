@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
+import { useToast } from "../contexts/ToastContext";
+import { DatabaseSetupHint } from "../components/DatabaseSetupHint";
+import { isDatabaseSetupMessage } from "../lib/isDatabaseSetupMessage";
 import {
   createBudget,
   deleteBudget,
@@ -10,20 +13,12 @@ import {
   type BudgetUsage,
 } from "../api/client";
 
-const field = {
-  width: "100%",
-  padding: "10px 12px",
-  borderRadius: "var(--radius-sm)",
-  border: "1px solid var(--border)",
-  background: "var(--bg-elevated)",
-  color: "var(--text)",
-} as const;
-
 const fmt = (amount: string, currency = "USD") =>
   new Intl.NumberFormat("es", { style: "currency", currency }).format(Number(amount));
 
 export function BudgetsPage() {
   const { token } = useAuth();
+  const { showToast } = useToast();
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [usageById, setUsageById] = useState<Record<string, BudgetUsage>>({});
   const [loading, setLoading] = useState(true);
@@ -94,6 +89,7 @@ export function BudgetsPage() {
       setLimit("");
       setAlertT("");
       await load();
+      showToast("Presupuesto creado");
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Error");
     } finally {
@@ -133,6 +129,7 @@ export function BudgetsPage() {
         delete next[editingId];
         return next;
       });
+      showToast("Presupuesto actualizado");
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Error");
     }
@@ -143,6 +140,7 @@ export function BudgetsPage() {
     try {
       await deleteBudget(token, id);
       await load();
+      showToast("Presupuesto eliminado");
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Error");
     }
@@ -151,97 +149,66 @@ export function BudgetsPage() {
   if (!token) return null;
 
   return (
-    <main style={{ flex: 1, padding: "24px", maxWidth: 720, margin: "0 auto", width: "100%" }}>
-      <h1 style={{ margin: "0 0 8px", fontSize: "1.5rem" }}>Presupuestos</h1>
-      <p style={{ margin: "0 0 24px", color: "var(--text-muted)" }}>
-        Límite por categoría y período (<code>monthly</code>, <code>weekly</code>, <code>yearly</code>). El uso se calcula con tus
-        gastos del período en UTC.
-      </p>
-      {err && <p style={{ color: "var(--danger)", marginBottom: 16 }}>{err}</p>}
+    <main className="app-page">
+      <header className="app-page-head">
+        <p className="app-page-eyebrow">Control por categoría</p>
+        <h1 className="app-page-title">Presupuestos</h1>
+        <p className="app-page-lead">
+          Límite por categoría y período (<code>monthly</code>, <code>weekly</code>, <code>yearly</code>). El uso se calcula con tus gastos del
+          período en UTC.
+        </p>
+      </header>
+      <DatabaseSetupHint message={err} />
+      {err && !isDatabaseSetupMessage(err) && <p className="app-error-banner">{err}</p>}
 
-      <form
-        onSubmit={handleCreate}
-        style={{
-          marginBottom: 32,
-          padding: 20,
-          borderRadius: "var(--radius)",
-          border: "1px solid var(--border)",
-          background: "var(--surface)",
-          display: "grid",
-          gap: 12,
-        }}
-      >
-        <strong>Nuevo presupuesto</strong>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
-          <input placeholder="Categoría" value={cat} onChange={(e) => setCat(e.target.value)} style={field} required />
-          <input placeholder="Límite" value={limit} onChange={(e) => setLimit(e.target.value)} style={field} required />
-          <select value={period} onChange={(e) => setPeriod(e.target.value)} style={field}>
-            <option value="monthly">Mensual</option>
-            <option value="weekly">Semanal</option>
-            <option value="yearly">Anual</option>
-          </select>
-          <input
-            placeholder="Alerta % (opcional)"
-            value={alertT}
-            onChange={(e) => setAlertT(e.target.value)}
-            style={field}
-            type="number"
-            min={0}
-            max={100}
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={saving}
-          style={{
-            justifySelf: "start",
-            padding: "12px 20px",
-            border: "none",
-            borderRadius: "var(--radius-sm)",
-            background: "var(--accent)",
-            color: "#0a0f0d",
-            fontWeight: 700,
-          }}
-        >
-          {saving ? "Guardando…" : "Agregar"}
-        </button>
-      </form>
+      <div className="app-panel">
+        <div className="app-panel-bar" aria-hidden />
+        <form onSubmit={handleCreate} className="app-panel-inner">
+          <h2 className="app-panel-title">Nuevo presupuesto</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
+            <input placeholder="Categoría" value={cat} onChange={(e) => setCat(e.target.value)} className="app-field-global" required />
+            <input placeholder="Límite" value={limit} onChange={(e) => setLimit(e.target.value)} className="app-field-global" required />
+            <select value={period} onChange={(e) => setPeriod(e.target.value)} className="app-field-global">
+              <option value="monthly">Mensual</option>
+              <option value="weekly">Semanal</option>
+              <option value="yearly">Anual</option>
+            </select>
+            <input
+              placeholder="Alerta % (opcional)"
+              value={alertT}
+              onChange={(e) => setAlertT(e.target.value)}
+              className="app-field-global"
+              type="number"
+              min={0}
+              max={100}
+            />
+          </div>
+          <button type="submit" disabled={saving} className="app-btn-pill">
+            {saving ? "Guardando…" : "Agregar"}
+          </button>
+        </form>
+      </div>
 
       {loading ? (
-        <p style={{ color: "var(--text-muted)" }}>Cargando…</p>
+        <p className="app-loading-text">Cargando…</p>
       ) : budgets.length === 0 ? (
-        <p
-          style={{
-            color: "var(--text-muted)",
-            padding: 32,
-            textAlign: "center",
-            border: "1px dashed var(--border)",
-            borderRadius: "var(--radius)",
-          }}
-        >
-          No hay presupuestos. Creá uno arriba.
-        </p>
+        <div className="app-empty-card">
+          <p style={{ margin: 0, fontWeight: 600, color: "var(--text)" }}>Todavía no tenés presupuestos</p>
+          <p style={{ margin: "10px 0 0", fontSize: "0.9rem" }}>Creá uno con categoría y tope arriba; después tocá «Ver uso del período».</p>
+        </div>
       ) : (
-        <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 16 }}>
+        <ul className="app-card-list">
           {budgets.map((b) => {
             const u = usageById[b.id];
             const isEdit = editingId === b.id;
             return (
-              <li
-                key={b.id}
-                style={{
-                  padding: 20,
-                  borderRadius: "var(--radius-sm)",
-                  border: "1px solid var(--border)",
-                  background: "var(--bg-elevated)",
-                }}
-              >
+              <li key={b.id} className="app-card">
                 {isEdit ? (
                   <form onSubmit={saveEdit} style={{ display: "grid", gap: 10 }}>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
-                      <input value={editCat} onChange={(e) => setEditCat(e.target.value)} style={field} required />
-                      <input value={editLimit} onChange={(e) => setEditLimit(e.target.value)} style={field} required />
-                      <select value={editPeriod} onChange={(e) => setEditPeriod(e.target.value)} style={field}>
+                      <input value={editCat} onChange={(e) => setEditCat(e.target.value)} className="app-field-global" required />
+                      <input value={editLimit} onChange={(e) => setEditLimit(e.target.value)} className="app-field-global" required />
+                      <select value={editPeriod} onChange={(e) => setEditPeriod(e.target.value)} className="app-field-global">
                         <option value="monthly">Mensual</option>
                         <option value="weekly">Semanal</option>
                         <option value="yearly">Anual</option>
@@ -250,27 +217,17 @@ export function BudgetsPage() {
                         value={editAlert}
                         onChange={(e) => setEditAlert(e.target.value)}
                         placeholder="% alerta"
-                        style={field}
+                        className="app-field-global"
                         type="number"
                         min={0}
                         max={100}
                       />
                     </div>
-                    <div style={{ display: "flex", gap: 10 }}>
-                      <button
-                        type="submit"
-                        style={{
-                          padding: "8px 14px",
-                          border: "none",
-                          borderRadius: "var(--radius-sm)",
-                          background: "var(--accent)",
-                          color: "#0a0f0d",
-                          fontWeight: 700,
-                        }}
-                      >
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                      <button type="submit" className="app-btn-pill app-btn-pill--sm">
                         Guardar
                       </button>
-                      <button type="button" onClick={() => setEditingId(null)} style={{ padding: "8px 14px", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", background: "transparent", color: "var(--text)" }}>
+                      <button type="button" onClick={() => setEditingId(null)} className="app-btn-ghost">
                         Cancelar
                       </button>
                     </div>
@@ -285,9 +242,7 @@ export function BudgetsPage() {
                           {b.alert_threshold != null && ` · Alerta al ${b.alert_threshold}%`}
                         </p>
                       </div>
-                      <p style={{ margin: 0, fontSize: "1.25rem", fontWeight: 800, color: "var(--accent)" }}>
-                        {fmt(b.limit_amount)}
-                      </p>
+                      <p style={{ margin: 0, fontSize: "1.25rem", fontWeight: 800, color: "var(--accent)" }}>{fmt(b.limit_amount)}</p>
                     </div>
                     {u && (
                       <div
@@ -308,32 +263,10 @@ export function BudgetsPage() {
                       </div>
                     )}
                     <div style={{ display: "flex", gap: 12, marginTop: 14, flexWrap: "wrap" }}>
-                      <button
-                        type="button"
-                        onClick={() => loadUsage(b.id)}
-                        style={{
-                          padding: "8px 12px",
-                          borderRadius: "var(--radius-sm)",
-                          border: "1px solid var(--border)",
-                          background: "var(--surface)",
-                          color: "var(--text)",
-                          fontSize: "0.85rem",
-                        }}
-                      >
+                      <button type="button" onClick={() => void loadUsage(b.id)} className="app-btn-ghost">
                         {u ? "Actualizar uso" : "Ver uso del período"}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => startEdit(b)}
-                        style={{
-                          padding: "8px 12px",
-                          borderRadius: "var(--radius-sm)",
-                          border: "1px solid var(--border)",
-                          background: "transparent",
-                          color: "var(--text-muted)",
-                          fontSize: "0.85rem",
-                        }}
-                      >
+                      <button type="button" onClick={() => startEdit(b)} className="app-btn-ghost">
                         Editar
                       </button>
                       <button
@@ -347,6 +280,7 @@ export function BudgetsPage() {
                           color: "var(--danger)",
                           fontSize: "0.85rem",
                           textDecoration: "underline",
+                          cursor: "pointer",
                         }}
                       >
                         Eliminar

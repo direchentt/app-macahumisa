@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import type { SharedList } from "../api/client";
 import { createExpense } from "../api/client";
+import { useToast } from "../contexts/ToastContext";
 
 type Props = {
   token: string;
@@ -8,16 +9,8 @@ type Props = {
   onCreated: () => void;
 };
 
-const inputStyle = {
-  width: "100%",
-  padding: "10px 12px",
-  borderRadius: "var(--radius-sm)",
-  border: "1px solid var(--border)",
-  background: "var(--bg-elevated)",
-  color: "var(--text)",
-} as const;
-
 export function ExpenseForm({ token, lists, onCreated }: Props) {
+  const { showToast } = useToast();
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState("USD");
   const [category, setCategory] = useState("");
@@ -28,6 +21,7 @@ export function ExpenseForm({ token, lists, onCreated }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [when, setWhen] = useState(() => new Date().toISOString().slice(0, 16));
+  const [dueDate, setDueDate] = useState("");
 
   useEffect(() => {
     if (!open) setError(null);
@@ -43,6 +37,7 @@ export function ExpenseForm({ token, lists, onCreated }: Props) {
     }
     setLoading(true);
     try {
+      const recordedAsIncome = isIncome;
       await createExpense(token, {
         amount: n,
         currency: currency.toUpperCase(),
@@ -51,14 +46,17 @@ export function ExpenseForm({ token, lists, onCreated }: Props) {
         description: description.trim() || null,
         is_income: isIncome,
         shared_list_id: sharedListId || null,
+        due_date: dueDate.trim() ? new Date(dueDate).toISOString() : null,
       });
       setAmount("");
       setCategory("");
       setDescription("");
       setSharedListId("");
       setIsIncome(false);
+      setDueDate("");
       setOpen(false);
       onCreated();
+      showToast(recordedAsIncome ? "Ingreso registrado" : "Gasto guardado");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error");
     } finally {
@@ -68,57 +66,24 @@ export function ExpenseForm({ token, lists, onCreated }: Props) {
 
   if (!open) {
     return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        style={{
-          padding: "14px 22px",
-          border: "none",
-          borderRadius: "var(--radius-sm)",
-          background: "var(--accent)",
-          color: "#0a0f0d",
-          fontWeight: 700,
-          fontSize: "1rem",
-        }}
-      >
+      <button type="button" onClick={() => setOpen(true)} className="expense-trigger">
         + Nuevo gasto
       </button>
     );
   }
 
   return (
-    <form
-      onSubmit={submit}
-      style={{
-        padding: 24,
-        borderRadius: "var(--radius)",
-        border: "1px solid var(--border)",
-        background: "var(--surface)",
-        maxWidth: 480,
-        boxShadow: "var(--shadow)",
-      }}
-    >
+    <form onSubmit={submit} className="expense-panel">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <h2 style={{ margin: 0, fontSize: "1.2rem" }}>Registrar movimiento</h2>
-        <button
-          type="button"
-          onClick={() => setOpen(false)}
-          style={{
-            border: "none",
-            background: "transparent",
-            color: "var(--text-muted)",
-            fontSize: "1.25rem",
-            lineHeight: 1,
-          }}
-          aria-label="Cerrar"
-        >
+        <h2 className="expense-panel-title">Registrar movimiento</h2>
+        <button type="button" onClick={() => setOpen(false)} className="expense-panel-close" aria-label="Cerrar">
           ×
         </button>
       </div>
 
       <div style={{ display: "grid", gap: 14 }}>
         <label>
-          <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Importe</span>
+          <span className="expense-field-label">Importe</span>
           <input
             type="text"
             inputMode="decimal"
@@ -126,55 +91,50 @@ export function ExpenseForm({ token, lists, onCreated }: Props) {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="0.00"
-            style={{ ...inputStyle, marginTop: 6 }}
+            className="expense-input"
           />
         </label>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12 }}>
           <label>
-            <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Moneda</span>
+            <span className="expense-field-label">Moneda</span>
             <input
               value={currency}
               onChange={(e) => setCurrency(e.target.value.slice(0, 3).toUpperCase())}
               maxLength={3}
-              style={{ ...inputStyle, marginTop: 6 }}
+              className="expense-input"
             />
           </label>
           <label>
-            <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Fecha y hora</span>
-            <input
-              type="datetime-local"
-              value={when}
-              onChange={(e) => setWhen(e.target.value)}
-              style={{ ...inputStyle, marginTop: 6 }}
-            />
+            <span className="expense-field-label">Fecha y hora</span>
+            <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} className="expense-input" />
           </label>
         </div>
         <label>
-          <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Categoría</span>
+          <span className="expense-field-label">Vencimiento (opcional, recordatorio)</span>
+          <input type="datetime-local" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="expense-input" />
+        </label>
+        <label>
+          <span className="expense-field-label">Categoría</span>
           <input
             value={category}
             onChange={(e) => setCategory(e.target.value)}
             placeholder="Ej. comida, transporte"
-            style={{ ...inputStyle, marginTop: 6 }}
+            className="expense-input"
           />
         </label>
         <label>
-          <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Nota</span>
+          <span className="expense-field-label">Nota</span>
           <input
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Opcional"
-            style={{ ...inputStyle, marginTop: 6 }}
+            className="expense-input"
           />
         </label>
         {lists.length > 0 && (
           <label>
-            <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Lista compartida (opcional)</span>
-            <select
-              value={sharedListId}
-              onChange={(e) => setSharedListId(e.target.value)}
-              style={{ ...inputStyle, marginTop: 6 }}
-            >
+            <span className="expense-field-label">Lista compartida (opcional)</span>
+            <select value={sharedListId} onChange={(e) => setSharedListId(e.target.value)} className="expense-input">
               <option value="">Solo para mí</option>
               {lists.map((l) => (
                 <option key={l.id} value={l.id}>
@@ -197,19 +157,7 @@ export function ExpenseForm({ token, lists, onCreated }: Props) {
       )}
 
       <div style={{ display: "flex", gap: 12, marginTop: 22 }}>
-        <button
-          type="submit"
-          disabled={loading}
-          style={{
-            flex: 1,
-            padding: "12px 18px",
-            border: "none",
-            borderRadius: "var(--radius-sm)",
-            background: "var(--accent)",
-            color: "#0a0f0d",
-            fontWeight: 700,
-          }}
-        >
+        <button type="submit" disabled={loading} className="expense-submit">
           {loading ? "Guardando…" : "Guardar"}
         </button>
       </div>

@@ -1,0 +1,18 @@
+{
+  "name": "Macahumisa",
+  "short_name": "Macahumisa",
+  "description": "Gastos, presupuestos y listas compartidas",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f1419",
+  "theme_color": "#ff441f",
+  "lang": "es",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

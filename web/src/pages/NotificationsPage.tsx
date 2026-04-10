@@ -95,8 +95,8 @@ export function NotificationsPage({ onRead }: Props) {
                       padding: "8px 12px",
                       borderRadius: "var(--radius-sm)",
                       border: "none",
-                      background: "var(--accent)",
-                      color: "#0a0f0d",
+                      background: "var(--cta)",
+                      color: "var(--cta-fg)",
                       fontWeight: 600,
                       fontSize: "0.8rem",
                     }}
