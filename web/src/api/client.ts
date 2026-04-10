@@ -1,4 +1,6 @@
-const API = "/api/v1";
+const API_ROOT = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
+/** En desarrollo vacío → proxy Vite `/api`. En producción: `VITE_API_URL=https://tu-api.com` */
+export const API_BASE = `${API_ROOT}/api/v1`;
 
 export type ApiErrorBody = { error?: string | Record<string, unknown> };
 
@@ -21,7 +23,7 @@ export async function apiFetch<T>(
     headers.set("Content-Type", "application/json");
     rest.body = JSON.stringify(json);
   }
-  const res = await fetch(`${API}${path}`, { ...rest, headers });
+  const res = await fetch(`${API_BASE}${path}`, { ...rest, headers });
   const text = await res.text();
   let data = {} as T & ApiErrorBody;
   if (text) {
@@ -117,6 +119,65 @@ export async function listSharedLists(token: string) {
   return apiFetch<{ shared_lists: SharedList[] }>("/shared-lists", token);
 }
 
+export async function getSharedList(token: string, id: string) {
+  return apiFetch<{ shared_list: SharedList; access: string; role: string | undefined }>(
+    `/shared-lists/${id}`,
+    token,
+  );
+}
+
+export async function createSharedList(token: string, body: { name: string; description?: string | null }) {
+  return apiFetch<{ shared_list: SharedList }>("/shared-lists", token, { method: "POST", json: body });
+}
+
+export async function updateSharedList(
+  token: string,
+  id: string,
+  body: { name?: string; description?: string | null },
+) {
+  return apiFetch<{ shared_list: SharedList }>(`/shared-lists/${id}`, token, { method: "PATCH", json: body });
+}
+
+export async function deleteSharedList(token: string, id: string) {
+  await apiFetch<unknown>(`/shared-lists/${id}`, token, { method: "DELETE" });
+}
+
+export type Member = {
+  id: string;
+  user_id: string;
+  list_id: string;
+  role: string;
+  joined_at: string;
+  email: string;
+};
+
+export async function listMembers(token: string, listId: string) {
+  return apiFetch<{ members: Member[] }>(`/shared-lists/${listId}/members`, token);
+}
+
+export async function addMember(token: string, listId: string, email: string, role?: "editor" | "viewer") {
+  return apiFetch<{ member: Member; email: string }>(`/shared-lists/${listId}/members`, token, {
+    method: "POST",
+    json: role ? { email, role } : { email },
+  });
+}
+
+export async function updateMemberRole(
+  token: string,
+  listId: string,
+  memberUserId: string,
+  role: "editor" | "viewer",
+) {
+  return apiFetch<{ member: Member }>(`/shared-lists/${listId}/members/${memberUserId}`, token, {
+    method: "PATCH",
+    json: { role },
+  });
+}
+
+export async function removeMember(token: string, listId: string, memberUserId: string) {
+  await apiFetch<unknown>(`/shared-lists/${listId}/members/${memberUserId}`, token, { method: "DELETE" });
+}
+
 export type Notification = {
   id: string;
   type: string;
@@ -142,12 +203,56 @@ export async function markAllNotificationsRead(token: string) {
 
 export type Budget = {
   id: string;
+  user_id: string;
   category: string;
   limit_amount: string;
   period: string;
   alert_threshold: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BudgetUsage = {
+  budget_id: string;
+  category: string;
+  period: string;
+  range: { start: string; end: string };
+  limit_amount: string;
+  spent: string;
+  remaining: string;
+  percent_used: number;
+  alert_threshold: number | null;
+  over_limit: boolean;
 };
 
 export async function listBudgets(token: string) {
   return apiFetch<{ budgets: Budget[] }>("/budgets", token);
+}
+
+export async function createBudget(
+  token: string,
+  body: {
+    category: string;
+    limit_amount: number;
+    period: string;
+    alert_threshold?: number | null;
+  },
+) {
+  return apiFetch<{ budget: Budget }>("/budgets", token, { method: "POST", json: body });
+}
+
+export async function updateBudget(
+  token: string,
+  id: string,
+  body: Partial<{ category: string; limit_amount: number; period: string; alert_threshold: number | null }>,
+) {
+  return apiFetch<{ budget: Budget }>(`/budgets/${id}`, token, { method: "PATCH", json: body });
+}
+
+export async function deleteBudget(token: string, id: string) {
+  await apiFetch<unknown>(`/budgets/${id}`, token, { method: "DELETE" });
+}
+
+export async function getBudgetUsage(token: string, id: string) {
+  return apiFetch<BudgetUsage>(`/budgets/${id}/usage`, token);
 }

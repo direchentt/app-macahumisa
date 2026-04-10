@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "dev:web": "npm run dev --prefix web",
-    "build:web": "npm run build --prefix web"
+    "build:web": "npm run build --prefix web",
+    "build:all": "npm run build --prefix web && npm run build"
   },
   "engines": {
     "node": ">=20"

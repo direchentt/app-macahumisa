@@ -5,13 +5,12 @@ import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { BudgetsPage } from "./pages/BudgetsPage";
-import { Header } from "./components/Header";
-
-type View = "dashboard" | "notifications" | "budgets";
+import { SharedListsPage } from "./pages/SharedListsPage";
+import { Header, type AppView } from "./components/Header";
 
 export default function App() {
   const { token, ready } = useAuth();
-  const [view, setView] = useState<View>("dashboard");
+  const [view, setView] = useState<AppView>("dashboard");
   const [unread, setUnread] = useState(0);
 
   const refreshUnread = useCallback(async () => {
@@ -23,7 +22,7 @@ export default function App() {
       const n = await listNotifications(token, true);
       setUnread(n.unread_count);
     } catch {
-      /* silencioso: badge no crítico */
+      /* silencioso */
     }
   }, [token]);
 
@@ -62,6 +61,7 @@ export default function App() {
       {view === "dashboard" && <DashboardPage onDataChange={refreshUnread} />}
       {view === "notifications" && <NotificationsPage onRead={refreshUnread} />}
       {view === "budgets" && <BudgetsPage />}
+      {view === "lists" && <SharedListsPage />}
     </div>
   );
 }

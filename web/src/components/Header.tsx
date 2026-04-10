@@ -1,9 +1,11 @@
 import { useAuth } from "../contexts/AuthContext";
 
+export type AppView = "dashboard" | "notifications" | "budgets" | "lists";
+
 type Props = {
   unreadNotifications: number;
-  view: "dashboard" | "notifications" | "budgets";
-  onNavigate: (v: "dashboard" | "notifications" | "budgets") => void;
+  view: AppView;
+  onNavigate: (v: AppView) => void;
 };
 
 export function Header({ unreadNotifications, view, onNavigate }: Props) {
@@ -36,14 +38,17 @@ export function Header({ unreadNotifications, view, onNavigate }: Props) {
         zIndex: 10,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <span style={{ fontWeight: 800, fontSize: "1.15rem", letterSpacing: "-0.02em" }}>Macahumisa</span>
-        <nav style={{ display: "flex", gap: 6 }}>
+        <nav style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           <button type="button" style={btn(view === "dashboard")} onClick={() => onNavigate("dashboard")}>
             Gastos
           </button>
           <button type="button" style={btn(view === "budgets")} onClick={() => onNavigate("budgets")}>
             Presupuestos
+          </button>
+          <button type="button" style={btn(view === "lists")} onClick={() => onNavigate("lists")}>
+            Listas
           </button>
           <button type="button" style={btn(view === "notifications")} onClick={() => onNavigate("notifications")}>
             Avisos

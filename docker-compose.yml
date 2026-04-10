@@ -1,0 +1,12 @@
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      # Opcional:
+      # SENDGRID_API_KEY: ${SENDGRID_API_KEY}
+      # SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL}

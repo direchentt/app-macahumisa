@@ -191,7 +191,8 @@ export function LoginPage() {
         </form>
 
         <p style={{ margin: "24px 0 0", fontSize: "0.85rem", color: "var(--text-muted)", textAlign: "center" }}>
-          El servidor API debe estar en <code style={{ fontSize: "0.8em" }}>localhost:3000</code> (proxy Vite).
+          Desarrollo: API en <code style={{ fontSize: "0.8em" }}>localhost:3000</code> (proxy Vite). Producción Docker: todo en
+          el mismo puerto 3000.
         </p>
       </div>
     </div>
