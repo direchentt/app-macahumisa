@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "../contexts/ToastContext";
 import { DatabaseSetupHint } from "../components/DatabaseSetupHint";
@@ -8,6 +8,8 @@ import {
   deleteCategoryRule,
   getWebhook,
   fetchBackupJson,
+  importBackup,
+  type BackupPayload,
   listCategoryRules,
   putWebhook,
   deleteWebhook,
@@ -34,6 +36,10 @@ export function SettingsPage() {
   const [webhookSaved, setWebhookSaved] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [backupBusy, setBackupBusy] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importConflict, setImportConflict] = useState<"skip" | "overwrite">("skip");
+  const [replaceRules, setReplaceRules] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -66,6 +72,29 @@ export function SettingsPage() {
       await load();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Error");
+    }
+  }
+
+  async function runImport(file: File) {
+    if (!token) return;
+    setImportBusy(true);
+    setErr(null);
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text) as BackupPayload;
+      const { summary } = await importBackup(token, {
+        data,
+        on_conflict: importConflict,
+        replace_category_rules: replaceRules,
+      });
+      showToast(
+        `Importación lista: +${summary.expenses_inserted} gastos nuevos, ${summary.expenses_updated} actualizados, ${summary.expenses_skipped} omitidos.`,
+      );
+      if (importInputRef.current) importInputRef.current.value = "";
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Error al importar");
+    } finally {
+      setImportBusy(false);
     }
   }
 
@@ -158,6 +187,50 @@ export function SettingsPage() {
         >
           {backupBusy ? "Generando…" : "Descargar respaldo JSON"}
         </button>
+
+        <div style={{ marginTop: 20, paddingTop: 20, borderTop: "1px solid var(--border)" }}>
+          <h3 style={{ fontSize: "1rem", margin: "0 0 8px" }}>Importar respaldo</h3>
+          <p style={{ margin: "0 0 12px", color: "var(--text-muted)", fontSize: "0.88rem", lineHeight: 1.5 }}>
+            Solo podés importar un JSON de <strong>tu misma cuenta</strong> (<code>user.id</code> igual a tu sesión). Con{" "}
+            <strong>Omitir existentes</strong> no se pisan filas que ya tengan el mismo id. Con{" "}
+            <strong>Sobrescribir</strong> se actualizan. Las reglas de categoría: si marcás reemplazar, se borran las tuyas y
+            se cargan las del archivo.
+          </p>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: "0.9rem" }}>
+            <input
+              type="radio"
+              name="imp-conflict"
+              checked={importConflict === "skip"}
+              onChange={() => setImportConflict("skip")}
+            />
+            Omitir gastos/presupuestos/metas ya existentes (mismo id)
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, fontSize: "0.9rem" }}>
+            <input
+              type="radio"
+              name="imp-conflict"
+              checked={importConflict === "overwrite"}
+              onChange={() => setImportConflict("overwrite")}
+            />
+            Sobrescribir si ya existe (mismo id)
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, fontSize: "0.9rem" }}>
+            <input type="checkbox" checked={replaceRules} onChange={(e) => setReplaceRules(e.target.checked)} />
+            Reemplazar todas mis reglas de categoría por las del archivo
+          </label>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json,.json"
+            disabled={importBusy || !token}
+            style={{ display: "block", marginBottom: 10, fontSize: "0.85rem" }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void runImport(f);
+            }}
+          />
+          {importBusy ? <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.85rem" }}>Importando…</p> : null}
+        </div>
       </section>
 
       <section style={{ marginBottom: 40 }}>

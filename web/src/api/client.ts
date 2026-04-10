@@ -595,3 +595,33 @@ export type BackupPayload = {
 export async function fetchBackupJson(token: string) {
   return apiFetch<BackupPayload>("/users/me/backup", token);
 }
+
+export type ImportBackupSummary = {
+  shared_lists_upserted: number;
+  memberships_inserted: number;
+  budgets_upserted: number;
+  savings_goals_upserted: number;
+  category_rules_upserted: number;
+  webhook_updated: boolean;
+  expenses_inserted: number;
+  expenses_updated: number;
+  expenses_skipped: number;
+};
+
+export async function importBackup(
+  token: string,
+  body: {
+    data: BackupPayload;
+    on_conflict?: "skip" | "overwrite";
+    replace_category_rules?: boolean;
+  },
+) {
+  return apiFetch<{ ok: true; summary: ImportBackupSummary }>("/users/me/backup/import", token, {
+    method: "POST",
+    json: {
+      data: body.data,
+      on_conflict: body.on_conflict ?? "skip",
+      replace_category_rules: body.replace_category_rules ?? false,
+    },
+  });
+}

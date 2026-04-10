@@ -10,6 +10,7 @@ import {
   listSharedLists,
   getBudgetUsage,
   NetworkFailure,
+  updateExpense,
   type BudgetUsage,
   type Expense,
   type ExpenseListQuery,
@@ -22,13 +23,14 @@ import { isDatabaseSetupMessage } from "../lib/isDatabaseSetupMessage";
 import { isDashboardWelcomeDismissed, setDashboardWelcomeDismissed } from "../lib/dashboardWelcomeStorage";
 import { useToast } from "../contexts/ToastContext";
 import {
+  buildDisplayExpenses,
+  enqueueQueued,
   expenseQueryKey,
   loadDashboardCache,
-  listPendingCreates,
-  pendingCreateToExpense,
+  listPendingOps,
   removePending,
   saveDashboardCache,
-  type PendingExpenseCreate,
+  type QueuedItem,
 } from "../lib/offlineDb";
 
 type Props = {
@@ -110,7 +112,7 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
     !welcomeDismissedLocal &&
     !isDashboardWelcomeDismissed(userId ?? null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [pendingCreates, setPendingCreates] = useState<PendingExpenseCreate[]>([]);
+  const [pendingOps, setPendingOps] = useState<QueuedItem[]>([]);
   const [dataFromCache, setDataFromCache] = useState(false);
   const [lists, setLists] = useState<SharedList[]>([]);
   const [loading, setLoading] = useState(true);
@@ -134,10 +136,10 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
 
   const refreshPending = useCallback(async () => {
     if (!userId) {
-      setPendingCreates([]);
+      setPendingOps([]);
       return;
     }
-    setPendingCreates(await listPendingCreates(userId));
+    setPendingOps(await listPendingOps(userId));
   }, [userId]);
 
   const queryParams = useMemo((): ExpenseListQuery => {
@@ -214,16 +216,26 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
 
   const syncPendingQueue = useCallback(async () => {
     if (!token || !userId) return;
-    const items = await listPendingCreates(userId);
+    const items = await listPendingOps(userId);
     if (items.length === 0) return;
     let ok = 0;
     for (const item of items) {
       try {
-        await createExpense(token, { ...item.body, force_duplicate: false });
-        await removePending(item.localId);
-        ok += 1;
+        if (item.op === "create") {
+          await createExpense(token, { ...item.body, force_duplicate: false });
+          await removePending(item.localId);
+          ok += 1;
+        } else if (item.op === "update") {
+          await updateExpense(token, item.expenseId, item.body);
+          await removePending(item.localId);
+          ok += 1;
+        } else {
+          await deleteExpense(token, item.expenseId);
+          await removePending(item.localId);
+          ok += 1;
+        }
       } catch (err) {
-        if (err instanceof ApiError && err.status === 409) {
+        if (item.op === "create" && err instanceof ApiError && err.status === 409) {
           const cont = window.confirm(
             "Un movimiento en cola podría ser duplicado de uno del mismo día. ¿Subirlo igual?",
           );
@@ -242,7 +254,7 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
       }
     }
     if (ok > 0) {
-      showToast(ok === items.length ? "Cola sincronizada con el servidor" : `Subidos ${ok} de ${items.length} en cola`);
+      showToast(ok === items.length ? "Cola sincronizada con el servidor" : `Procesados ${ok} de ${items.length} en cola`);
       await refreshPending();
       await load();
     }
@@ -278,12 +290,9 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [token, expenses.length, pendingCreates.length]);
+  }, [token, expenses.length, pendingOps.length]);
 
-  const displayExpenses = useMemo(() => {
-    const p = pendingCreates.map(pendingCreateToExpense);
-    return [...p, ...expenses].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [pendingCreates, expenses]);
+  const displayExpenses = useMemo(() => buildDisplayExpenses(expenses, pendingOps), [expenses, pendingOps]);
 
   const periodLabel = useMemo(() => labelForYm(periodYm), [periodYm]);
   const summaryMap = useMemo(() => totalsByCurrency(displayExpenses), [displayExpenses]);
@@ -316,10 +325,10 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
   const listSlice = dashTab === "overview" ? displayExpenses.slice(0, 8) : displayExpenses;
 
   async function handleDelete(id: string) {
-    const queued = pendingCreates.find((p) => p.localId === id);
-    if (queued) {
+    const createQ = pendingOps.find((p) => p.op === "create" && p.localId === id);
+    if (createQ) {
       if (!confirm("¿Quitar este movimiento de la cola? No se subirá al servidor.")) return;
-      await removePending(id);
+      await removePending(createQ.localId);
       await refreshPending();
       showToast("Quitado de la cola");
       return;
@@ -330,6 +339,18 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
       await load();
       showToast("Movimiento eliminado");
     } catch (e) {
+      if (e instanceof NetworkFailure && userId) {
+        await enqueueQueued({
+          op: "delete",
+          localId: crypto.randomUUID(),
+          userId,
+          expenseId: id,
+          queuedAt: new Date().toISOString(),
+        });
+        await refreshPending();
+        showToast("Sin conexión: la baja quedó en cola.");
+        return;
+      }
       showToast(e instanceof Error ? e.message : "No se pudo eliminar");
     }
   }
@@ -531,7 +552,7 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
   return (
     <main className="dash-shell">
       <DatabaseSetupHint message={err} />
-      {(dataFromCache || pendingCreates.length > 0) && (
+      {(dataFromCache || pendingOps.length > 0) && (
         <div className="dash-offline-banner" role="status">
           {dataFromCache ? (
             <p>
@@ -539,9 +560,10 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
               (última sincronización de esta vista).
             </p>
           ) : null}
-          {pendingCreates.length > 0 ? (
+          {pendingOps.length > 0 ? (
             <p>
-              <strong>{pendingCreates.length} movimiento(s) en cola</strong> para subir cuando haya red.
+              <strong>{pendingOps.length} operación(es) en cola</strong> (altas, ediciones o bajas) para enviar cuando haya
+              red.
               <button type="button" className="dash-offline-banner__btn" onClick={() => void syncPendingQueue()}>
                 Sincronizar ahora
               </button>
@@ -881,7 +903,15 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
       )}
 
       {editing && (
-        <ExpenseEditModal token={token} expense={editing} lists={lists} onClose={() => setEditing(null)} onSaved={load} />
+        <ExpenseEditModal
+          token={token}
+          expense={editing}
+          lists={lists}
+          userId={userId}
+          onClose={() => setEditing(null)}
+          onSaved={load}
+          onPendingChange={refreshPending}
+        />
       )}
     </main>
   );

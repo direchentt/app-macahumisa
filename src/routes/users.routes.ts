@@ -4,6 +4,7 @@ import type { Pool } from "pg";
 import type { Env } from "../config/env.js";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
 import { EXPENSE_VISIBILITY_SQL } from "../lib/expenseVisibilitySql.js";
+import { importUserBackup } from "../services/importUserBackup.js";
 
 const EXPENSE_BACKUP_SELECT = `e.id, e.user_id, e.amount::text, e.currency, e.category, e.description, e.date::text, e.tags, e.notes, e.source,
   e.is_income, e.is_recurring, e.recurring_frequency, e.merchant, e.receipt_url, e.status, e.shared_with,
@@ -165,6 +166,43 @@ export function usersRouter(pool: Pool, env: Env) {
       webhook: webhookRows.rows[0] ?? null,
       memberships: membershipRows.rows,
     });
+  });
+
+  const importBackupBody = z
+    .object({
+      data: z.unknown(),
+      on_conflict: z.enum(["skip", "overwrite"]).optional().default("skip"),
+      replace_category_rules: z.boolean().optional().default(false),
+    })
+    .strict();
+
+  /** Importar un JSON exportado con GET /me/backup (misma cuenta). */
+  r.post("/me/backup/import", auth, async (req, res) => {
+    const parsed = importBackupBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.flatten() });
+      return;
+    }
+    const { userId } = req as AuthedRequest;
+    const b = parsed.data;
+    try {
+      const summary = await importUserBackup(pool, userId, b.data, {
+        onConflict: b.on_conflict,
+        replaceCategoryRules: b.replace_category_rules,
+      });
+      res.json({ ok: true, summary });
+    } catch (e) {
+      const err = e as Error & { status?: number; zod?: unknown };
+      if (err.status === 400) {
+        res.status(400).json({ error: err.message, zod: err.zod });
+        return;
+      }
+      if (err.status === 403) {
+        res.status(403).json({ error: err.message });
+        return;
+      }
+      throw e;
+    }
   });
 
   return r;

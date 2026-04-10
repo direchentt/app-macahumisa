@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import type { SharedList } from "../api/client";
 import { ApiError, createExpense, NetworkFailure } from "../api/client";
-import { enqueuePendingExpense } from "../lib/offlineDb";
+import { enqueueQueued } from "../lib/offlineDb";
 import { useToast } from "../contexts/ToastContext";
 import { compressReceiptToDataUrl } from "../lib/compressReceiptImage";
 
@@ -87,7 +87,8 @@ export function ExpenseForm({ token, lists, userId, onCreated, onPendingChange }
       resetAfterSave(recordedAsIncome);
     } catch (err) {
       if (err instanceof NetworkFailure && userId) {
-        await enqueuePendingExpense({
+        await enqueueQueued({
+          op: "create",
           localId: crypto.randomUUID(),
           userId,
           body: {

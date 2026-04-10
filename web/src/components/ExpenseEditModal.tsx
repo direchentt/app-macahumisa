@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import type { Expense, SharedList } from "../api/client";
-import { updateExpense } from "../api/client";
+import { NetworkFailure, updateExpense } from "../api/client";
+import { enqueueQueued, type PendingUpdateBody } from "../lib/offlineDb";
 import { useToast } from "../contexts/ToastContext";
 import { compressReceiptToDataUrl } from "../lib/compressReceiptImage";
 
@@ -8,8 +9,10 @@ type Props = {
   token: string;
   expense: Expense;
   lists: SharedList[];
+  userId: string | null;
   onClose: () => void;
   onSaved: () => void;
+  onPendingChange?: () => void;
 };
 
 const inputStyle = {
@@ -21,7 +24,7 @@ const inputStyle = {
   color: "var(--text)",
 } as const;
 
-export function ExpenseEditModal({ token, expense, lists, onClose, onSaved }: Props) {
+export function ExpenseEditModal({ token, expense, lists, userId, onClose, onSaved, onPendingChange }: Props) {
   const { showToast } = useToast();
   const receiptRef = useRef<HTMLInputElement>(null);
   const [amount, setAmount] = useState(expense.amount.replace(".", ","));
@@ -48,7 +51,7 @@ export function ExpenseEditModal({ token, expense, lists, onClose, onSaved }: Pr
     setLoading(true);
     try {
       const asIncome = isIncome;
-      await updateExpense(token, expense.id, {
+      const patch: PendingUpdateBody = {
         amount: n,
         currency: currency.toUpperCase().slice(0, 3),
         date: new Date(when).toISOString(),
@@ -58,11 +61,38 @@ export function ExpenseEditModal({ token, expense, lists, onClose, onSaved }: Pr
         shared_list_id: sharedListId || null,
         due_date: due.trim() ? new Date(due).toISOString() : null,
         receipt_url: receiptUrl,
-      });
+      };
+      await updateExpense(token, expense.id, patch);
       onSaved();
       onClose();
       showToast(asIncome ? "Ingreso actualizado" : "Gasto actualizado");
     } catch (err) {
+      if (err instanceof NetworkFailure && userId) {
+        const patch: PendingUpdateBody = {
+          amount: n,
+          currency: currency.toUpperCase().slice(0, 3),
+          date: new Date(when).toISOString(),
+          category: category.trim() || null,
+          description: description.trim() || null,
+          is_income: isIncome,
+          shared_list_id: sharedListId || null,
+          due_date: due.trim() ? new Date(due).toISOString() : null,
+          receipt_url: receiptUrl,
+        };
+        await enqueueQueued({
+          op: "update",
+          localId: crypto.randomUUID(),
+          userId,
+          expenseId: expense.id,
+          body: patch,
+          queuedAt: new Date().toISOString(),
+        });
+        showToast("Sin conexión: los cambios quedaron en cola.");
+        onPendingChange?.();
+        onSaved();
+        onClose();
+        return;
+      }
       setError(err instanceof Error ? err.message : "Error");
     } finally {
       setLoading(false);

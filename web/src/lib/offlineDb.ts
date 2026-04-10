@@ -1,7 +1,7 @@
 import type { Expense, ExpenseListQuery, SharedList } from "../api/client";
 
 const DB_NAME = "macahumisa-offline-v1";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export type DashboardCacheRow = {
   userId: string;
@@ -23,12 +23,67 @@ export type PendingExpenseBody = {
   receipt_url?: string | null;
 };
 
-export type PendingExpenseCreate = {
+/** Cuerpo de PATCH alineado con updateExpense en el cliente. */
+export type PendingUpdateBody = {
+  amount: number;
+  currency: string;
+  date: string;
+  category: string | null;
+  description: string | null;
+  is_income: boolean;
+  shared_list_id: string | null;
+  due_date: string | null;
+  receipt_url: string | null;
+};
+
+export type QueuedCreate = {
+  op: "create";
   localId: string;
   userId: string;
   body: PendingExpenseBody;
   queuedAt: string;
 };
+
+export type QueuedUpdate = {
+  op: "update";
+  localId: string;
+  userId: string;
+  expenseId: string;
+  body: PendingUpdateBody;
+  queuedAt: string;
+};
+
+export type QueuedDelete = {
+  op: "delete";
+  localId: string;
+  userId: string;
+  expenseId: string;
+  queuedAt: string;
+};
+
+export type QueuedItem = QueuedCreate | QueuedUpdate | QueuedDelete;
+
+function isQueuedItem(raw: unknown): raw is QueuedItem {
+  if (!raw || typeof raw !== "object") return false;
+  const o = raw as Record<string, unknown>;
+  if (o.op === "create" || o.op === "update" || o.op === "delete") return true;
+  /* Migración: colas viejas solo tenían create */
+  return Boolean(o.localId && o.userId && o.body && typeof o.body === "object");
+}
+
+function normalizeQueued(raw: unknown): QueuedItem | null {
+  if (!isQueuedItem(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  if (o.op === "update" || o.op === "delete") return raw as QueuedUpdate | QueuedDelete;
+  if (o.op === "create") return raw as QueuedCreate;
+  return {
+    op: "create",
+    localId: String(o.localId),
+    userId: String(o.userId),
+    body: o.body as PendingExpenseBody,
+    queuedAt: String(o.queuedAt ?? new Date().toISOString()),
+  };
+}
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -90,7 +145,7 @@ export async function loadDashboardCache(userId: string): Promise<DashboardCache
   }
 }
 
-export async function enqueuePendingExpense(item: PendingExpenseCreate): Promise<void> {
+export async function enqueueQueued(item: QueuedItem): Promise<void> {
   const db = await openDb();
   try {
     await new Promise<void>((resolve, reject) => {
@@ -104,16 +159,21 @@ export async function enqueuePendingExpense(item: PendingExpenseCreate): Promise
   }
 }
 
-export async function listPendingCreates(userId: string): Promise<PendingExpenseCreate[]> {
+export async function listPendingOps(userId: string): Promise<QueuedItem[]> {
   const db = await openDb();
   try {
-    const all = await new Promise<PendingExpenseCreate[]>((resolve, reject) => {
+    const all = await new Promise<unknown[]>((resolve, reject) => {
       const tx = db.transaction("queue", "readonly");
       const r = tx.objectStore("queue").getAll();
-      r.onsuccess = () => resolve((r.result as PendingExpenseCreate[]) ?? []);
+      r.onsuccess = () => resolve((r.result as unknown[]) ?? []);
       r.onerror = () => reject(r.error);
     });
-    return all.filter((x) => x.userId === userId).sort((a, b) => a.queuedAt.localeCompare(b.queuedAt));
+    const out: QueuedItem[] = [];
+    for (const raw of all) {
+      const n = normalizeQueued(raw);
+      if (n && n.userId === userId) out.push(n);
+    }
+    return out.sort((a, b) => a.queuedAt.localeCompare(b.queuedAt));
   } finally {
     db.close();
   }
@@ -133,7 +193,7 @@ export async function removePending(localId: string): Promise<void> {
   }
 }
 
-export function pendingCreateToExpense(p: PendingExpenseCreate): Expense {
+export function pendingCreateToExpense(p: QueuedCreate): Expense {
   const b = p.body;
   return {
     id: p.localId,
@@ -150,4 +210,32 @@ export function pendingCreateToExpense(p: PendingExpenseCreate): Expense {
     created_at: p.queuedAt,
     pending_sync: true,
   };
+}
+
+export function mergeExpenseWithPatch(e: Expense, b: PendingUpdateBody): Expense {
+  return {
+    ...e,
+    amount: String(b.amount),
+    currency: b.currency,
+    date: b.date,
+    category: b.category,
+    description: b.description,
+    is_income: b.is_income,
+    shared_list_id: b.shared_list_id,
+    due_date: b.due_date,
+    receipt_url: b.receipt_url,
+    pending_sync: true,
+  };
+}
+
+export function buildDisplayExpenses(server: Expense[], ops: QueuedItem[]): Expense[] {
+  const deletes = new Set(ops.filter((o): o is QueuedDelete => o.op === "delete").map((o) => o.expenseId));
+  let merged = server.filter((e) => !deletes.has(e.id));
+  for (const o of ops) {
+    if (o.op !== "update") continue;
+    const i = merged.findIndex((e) => e.id === o.expenseId);
+    if (i >= 0) merged[i] = mergeExpenseWithPatch(merged[i]!, o.body);
+  }
+  const creates = ops.filter((o): o is QueuedCreate => o.op === "create").map(pendingCreateToExpense);
+  return [...creates, ...merged].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 }

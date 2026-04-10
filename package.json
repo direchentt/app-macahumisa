@@ -9,6 +9,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "db:migrate": "tsx scripts/migrate.ts",
+    "db:backup": "bash scripts/pg-backup.sh",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
