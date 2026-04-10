@@ -84,18 +84,20 @@ export default function App() {
         onNavigate={setView}
         onOpenTour={() => setShowOnboarding(true)}
       />
-      {view === "dashboard" && (
-        <DashboardPage
-          onDataChange={refreshUnread}
-          onNavigate={(v) => setView(v === "budgets" ? "budgets" : "goals")}
-          onOpenTour={() => setShowOnboarding(true)}
-        />
-      )}
-      {view === "notifications" && <NotificationsPage onRead={refreshUnread} />}
-      {view === "budgets" && <BudgetsPage />}
-      {view === "goals" && <GoalsPage />}
-      {view === "lists" && <SharedListsPage />}
-      {view === "settings" && <SettingsPage />}
+      <main key={view} className="app-main-surface">
+        {view === "dashboard" && (
+          <DashboardPage
+            onDataChange={refreshUnread}
+            onNavigate={(v) => setView(v === "budgets" ? "budgets" : "goals")}
+            onOpenTour={() => setShowOnboarding(true)}
+          />
+        )}
+        {view === "notifications" && <NotificationsPage onRead={refreshUnread} />}
+        {view === "budgets" && <BudgetsPage />}
+        {view === "goals" && <GoalsPage />}
+        {view === "lists" && <SharedListsPage />}
+        {view === "settings" && <SettingsPage />}
+      </main>
     </div>
   );
 }

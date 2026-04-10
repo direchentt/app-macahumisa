@@ -27,6 +27,18 @@
     linear-gradient(125deg, var(--brand-coral), color-mix(in srgb, var(--brand-mint) 70%, var(--brand-coral)), var(--brand-blue)) border-box;
   background-origin: border-box;
   box-shadow: var(--shadow-lg), 0 0 0 1px color-mix(in srgb, var(--brand-blue) 8%, transparent);
+  animation: auth-card-in var(--motion) var(--motion-ease);
+}
+
+@keyframes auth-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .auth-eyebrow {
@@ -46,6 +58,20 @@
   line-height: 1.12;
   margin: 0 0 12px;
   color: var(--text);
+}
+
+.auth-title--with-icon {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.auth-title-icon {
+  width: clamp(2rem, 6vw, 2.35rem);
+  height: clamp(2rem, 6vw, 2.35rem);
+  flex-shrink: 0;
+  color: var(--accent);
 }
 
 .auth-subtitle {

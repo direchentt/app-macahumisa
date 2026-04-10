@@ -41,6 +41,12 @@ export function mapServerError(err: unknown, isDev: boolean): { error: string; d
         "No hay conexión con PostgreSQL. Comprobá que el servidor esté en marcha y el puerto en DATABASE_URL.",
     };
   }
+  if (e.code === "ENETUNREACH" || msgLower.includes("enetunreach")) {
+    return {
+      error:
+        "No se alcanza el servidor de la base (red o IPv6). En Railway usá la URL interna de Postgres del mismo proyecto o el hostname pooler de tu proveedor; el código ya prioriza IPv4 al arrancar.",
+    };
+  }
   if (e.code === "ENOTFOUND") {
     return { error: "No se resuelve el host de la base de datos. Revisá DATABASE_URL." };
   }

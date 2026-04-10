@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
+import { IconLogo } from "../components/AppIcons";
 
 export function LoginPage() {
   const { login, register } = useAuth();
@@ -32,7 +33,10 @@ export function LoginPage() {
     <div className="auth-screen">
       <div className="auth-card">
         <p className="auth-eyebrow">Gastos y presupuestos</p>
-        <h1 className="auth-title">Macahumisa</h1>
+        <h1 className="auth-title auth-title--with-icon">
+          <IconLogo className="auth-title-icon" />
+          Macahumisa
+        </h1>
         <p className="auth-subtitle">Registrá movimientos, compartí listas y controlá el consumo por categoría sin perder de vista el mes.</p>
         <ul className="auth-benefits">
           <li>Tour guiado al entrar para ubicarte en cada sección.</li>
