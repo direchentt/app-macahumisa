@@ -1,41 +1,39 @@
 import pg from "pg";
+import { parseIntoClientConfig } from "pg-connection-string";
 import type { Env } from "../config/env.js";
 
 /**
- * SSL para node-pg: el pooler de Supabase suele fallar con verify estricto desde Node/Docker (cadena / SNI).
- * DATABASE_SSL_REJECT_UNAUTHORIZED=0|1 fuerza el modo (cualquier host).
+ * Con `connectionString` + `ssl` en el mismo Pool, node-pg hace merge con el parse de la URL y
+ * `sslmode=require` puede pisar `rejectUnauthorized` (típico con Supabase).
+ * Para Supabase armamos ClientConfig explícito con SSL relajado.
+ * DATABASE_SSL_REJECT_UNAUTHORIZED=0|1 fuerza el modo en cualquier host.
  */
-function sslConfig(connectionString: string): pg.PoolConfig["ssl"] | undefined {
-  const explicit = process.env.DATABASE_SSL_REJECT_UNAUTHORIZED;
-  if (explicit === "0" || explicit === "false") {
-    return { rejectUnauthorized: false };
-  }
-  if (explicit === "1" || explicit === "true") {
-    return { rejectUnauthorized: true };
-  }
-
-  let hostname = "";
-  try {
-    hostname = new URL(connectionString).hostname.toLowerCase();
-  } catch {
-    return undefined;
-  }
-
-  if (hostname.endsWith("pooler.supabase.com")) {
-    return { rejectUnauthorized: false };
-  }
-
-  if (hostname.includes("supabase.com") || /sslmode=require|sslmode=verify-full/i.test(connectionString)) {
-    return { rejectUnauthorized: true };
-  }
-
-  return undefined;
-}
-
 export function createPool(env: Env) {
-  const ssl = sslConfig(env.DATABASE_URL);
-  return new pg.Pool({
-    connectionString: env.DATABASE_URL,
-    ...(ssl !== undefined ? { ssl } : {}),
-  });
+  const cs = env.DATABASE_URL;
+  const ex = process.env.DATABASE_SSL_REJECT_UNAUTHORIZED;
+
+  const parsed = parseIntoClientConfig(cs);
+  const host = String(parsed.host ?? "").toLowerCase();
+  const supabase = host.includes("supabase.co") || host.includes("pooler.supabase.com");
+
+  const relax =
+    ex === "0" ||
+    ex === "false" ||
+    supabase;
+  const strict = ex === "1" || ex === "true";
+
+  if (relax && !strict) {
+    return new pg.Pool({
+      ...parsed,
+      ssl: { rejectUnauthorized: false },
+    });
+  }
+  if (strict) {
+    return new pg.Pool({
+      ...parsed,
+      ssl: { rejectUnauthorized: true },
+    });
+  }
+
+  return new pg.Pool({ connectionString: cs });
 }
