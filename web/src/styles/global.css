@@ -318,24 +318,14 @@ a {
   }
 }
 
-/* Barra superior + franja marca */
-.app-header-start {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-  flex: 1;
-  min-width: 0;
-}
-
+/* Barra superior — layout detallado en app-shell.css */
 .app-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
   padding: 14px 20px;
-  padding-top: 16px;
+  padding-top: max(14px, env(safe-area-inset-top, 0px));
   border-bottom: 1px solid color-mix(in srgb, var(--brand-blue) 12%, var(--border));
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--bg-elevated) 88%, transparent) 0%, color-mix(in srgb, var(--pastel-mint) 12%, var(--bg-elevated)) 100%),
@@ -364,7 +354,7 @@ a {
 @media (min-width: 768px) {
   .app-header {
     padding: 16px 28px 18px;
-    padding-top: 18px;
+    padding-top: max(18px, env(safe-area-inset-top, 0px));
   }
 }
 
@@ -391,67 +381,6 @@ a {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-}
-
-.app-nav {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.app-nav-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border-radius: var(--radius-pill);
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-muted);
-  font-weight: var(--fw-semibold);
-  font-size: 0.8125rem;
-  transition:
-    color var(--motion-fast) var(--motion-ease),
-    background var(--motion-fast) var(--motion-ease),
-    border-color var(--motion-fast) var(--motion-ease),
-    transform var(--motion-fast) var(--motion-ease);
-}
-
-.app-nav-btn:hover {
-  color: var(--text);
-  background: var(--surface);
-  transform: translateY(-1px);
-}
-
-.app-nav-btn:active {
-  transform: translateY(0);
-}
-
-.app-nav-btn--active {
-  color: var(--accent);
-  background: var(--accent-dim);
-  border-color: transparent;
-}
-
-.app-nav-icon {
-  width: 1.125rem;
-  height: 1.125rem;
-  flex-shrink: 0;
-  opacity: 0.88;
-  transition:
-    opacity var(--motion-fast) var(--motion-ease),
-    transform var(--motion-fast) var(--motion-ease);
-}
-
-.app-nav-btn:hover .app-nav-icon,
-.app-nav-btn--active .app-nav-icon {
-  opacity: 1;
-}
-
-.app-nav-btn--active .app-nav-icon {
-  transform: scale(1.06);
-  color: var(--accent);
 }
 
 .app-header-actions {
@@ -525,12 +454,3 @@ a {
   }
 }
 
-.app-nav-badge {
-  margin-left: 6px;
-  padding: 2px 7px;
-  border-radius: var(--radius-pill);
-  background: linear-gradient(135deg, color-mix(in srgb, var(--brand-mint) 25%, var(--brand-blue)) 0%, var(--brand-blue) 100%);
-  color: var(--cta-fg);
-  font-size: 0.6875rem;
-  font-weight: var(--fw-bold);
-}

@@ -76,7 +76,7 @@ export default function App() {
   }
 
   return (
-    <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column" }}>
+    <div className="app-shell">
       {showOnboarding && <Onboarding onFinish={finishOnboarding} onDismiss={dismissOnboarding} />}
       <Header
         unreadNotifications={unread}

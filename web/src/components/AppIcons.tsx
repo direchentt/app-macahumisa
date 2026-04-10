@@ -33,6 +33,27 @@ export function IconLogo(props: IconProps) {
   return iconWrap(<path d="M3 17h3.5l3-9 4 7 3.5-11H21" />, props);
 }
 
+export function IconHome(props: IconProps) {
+  return iconWrap(
+    <>
+      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+      <polyline points="9 22 9 12 15 12 15 22" />
+    </>,
+    props,
+  );
+}
+
+export function IconMenu(props: IconProps) {
+  return iconWrap(
+    <>
+      <line x1="4" y1="12" x2="20" y2="12" />
+      <line x1="4" y1="6" x2="20" y2="6" />
+      <line x1="4" y1="18" x2="20" y2="18" />
+    </>,
+    props,
+  );
+}
+
 export function IconWallet(props: IconProps) {
   return iconWrap(
     <>
