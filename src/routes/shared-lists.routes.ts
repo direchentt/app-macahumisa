@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Pool } from "pg";
 import type { Env } from "../config/env.js";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
+import { getListAccess, isListOwner, isListParticipant } from "../lib/sharedListAccess.js";
 
 const uuid = z.string().uuid();
 
@@ -53,26 +54,6 @@ export type MembershipRow = {
   email?: string;
 };
 
-async function getAccess(
-  pool: Pool,
-  listId: string,
-  userId: string,
-): Promise<"owner" | "member" | null> {
-  const { rows } = await pool.query<{ owner_id: string }>(
-    `SELECT owner_id FROM shared_lists WHERE id = $1`,
-    [listId],
-  );
-  const list = rows[0];
-  if (!list) return null;
-  if (list.owner_id === userId) return "owner";
-  const m = await pool.query(`SELECT 1 FROM memberships WHERE list_id = $1 AND user_id = $2`, [
-    listId,
-    userId,
-  ]);
-  if (m.rowCount) return "member";
-  return null;
-}
-
 export function sharedListsRouter(pool: Pool, env: Env) {
   const r = Router();
   const auth = requireAuth(env);
@@ -114,8 +95,8 @@ export function sharedListsRouter(pool: Pool, env: Env) {
       return;
     }
     const { userId } = req as AuthedRequest;
-    const access = await getAccess(pool, idParse.data, userId);
-    if (!access) {
+    const access = await getListAccess(pool, idParse.data, userId);
+    if (!isListParticipant(access)) {
       res.status(404).json({ error: "Lista no encontrada" });
       return;
     }
@@ -142,8 +123,8 @@ export function sharedListsRouter(pool: Pool, env: Env) {
       return;
     }
     const { userId } = req as AuthedRequest;
-    const access = await getAccess(pool, idParse.data, userId);
-    if (access !== "owner") {
+    const access = await getListAccess(pool, idParse.data, userId);
+    if (!isListOwner(access)) {
       res.status(403).json({ error: "Solo el dueño puede invitar miembros" });
       return;
     }
@@ -201,8 +182,8 @@ export function sharedListsRouter(pool: Pool, env: Env) {
       return;
     }
     const { userId } = req as AuthedRequest;
-    const access = await getAccess(pool, listId.data, userId);
-    if (access !== "owner") {
+    const access = await getListAccess(pool, listId.data, userId);
+    if (!isListOwner(access)) {
       res.status(403).json({ error: "Solo el dueño puede cambiar roles" });
       return;
     }
@@ -227,13 +208,13 @@ export function sharedListsRouter(pool: Pool, env: Env) {
       return;
     }
     const { userId } = req as AuthedRequest;
-    const access = await getAccess(pool, listId.data, userId);
-    if (!access) {
+    const access = await getListAccess(pool, listId.data, userId);
+    if (!isListParticipant(access)) {
       res.status(404).json({ error: "Lista no encontrada" });
       return;
     }
     const isSelf = memberUserId.data === userId;
-    if (!isSelf && access !== "owner") {
+    if (!isSelf && !isListOwner(access)) {
       res.status(403).json({ error: "Solo podés salir de la lista o el dueño puede expulsar" });
       return;
     }
@@ -256,8 +237,8 @@ export function sharedListsRouter(pool: Pool, env: Env) {
       return;
     }
     const { userId } = req as AuthedRequest;
-    const access = await getAccess(pool, idParse.data, userId);
-    if (!access) {
+    const access = await getListAccess(pool, idParse.data, userId);
+    if (!isListParticipant(access)) {
       res.status(404).json({ error: "Lista no encontrada" });
       return;
     }
@@ -266,7 +247,8 @@ export function sharedListsRouter(pool: Pool, env: Env) {
        FROM shared_lists WHERE id = $1`,
       [idParse.data],
     );
-    res.json({ shared_list: rows[0], access });
+    const accessLabel = isListOwner(access) ? "owner" : "member";
+    res.json({ shared_list: rows[0], access: accessLabel, role: access?.role });
   });
 
   r.patch("/:id", auth, async (req, res) => {
@@ -287,8 +269,8 @@ export function sharedListsRouter(pool: Pool, env: Env) {
       return;
     }
     const { userId } = req as AuthedRequest;
-    const access = await getAccess(pool, idParse.data, userId);
-    if (access !== "owner") {
+    const access = await getListAccess(pool, idParse.data, userId);
+    if (!isListOwner(access)) {
       res.status(403).json({ error: "Solo el dueño puede editar la lista" });
       return;
     }
@@ -313,8 +295,8 @@ export function sharedListsRouter(pool: Pool, env: Env) {
       return;
     }
     const { userId } = req as AuthedRequest;
-    const access = await getAccess(pool, idParse.data, userId);
-    if (access !== "owner") {
+    const access = await getListAccess(pool, idParse.data, userId);
+    if (!isListOwner(access)) {
       res.status(403).json({ error: "Solo el dueño puede eliminar la lista" });
       return;
     }

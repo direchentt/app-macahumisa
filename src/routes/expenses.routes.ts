@@ -3,14 +3,34 @@ import { z } from "zod";
 import type { Pool } from "pg";
 import type { Env } from "../config/env.js";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
+import {
+  canCreateExpenseOnList,
+  canMutateExpense,
+  getListAccess,
+} from "../lib/sharedListAccess.js";
 
 const uuid = z.string().uuid();
+
+/** Visibilidad: personales del usuario o gastos de listas donde participa. Usa $1 = userId JWT. */
+const EXPENSE_VISIBILITY_SQL = `(
+  (e.shared_list_id IS NULL AND e.user_id = $1)
+  OR (
+    e.shared_list_id IS NOT NULL
+    AND EXISTS (
+      SELECT 1 FROM shared_lists sl
+      LEFT JOIN memberships m ON m.list_id = sl.id AND m.user_id = $1
+      WHERE sl.id = e.shared_list_id
+        AND (sl.owner_id = $1 OR m.user_id IS NOT NULL)
+    )
+  )
+)`;
 
 const listQuery = z.object({
   from: z.string().optional(),
   to: z.string().optional(),
   category: z.string().max(50).optional(),
   is_income: z.enum(["true", "false"]).optional(),
+  shared_list_id: z.string().uuid().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });
@@ -32,10 +52,19 @@ const createExpense = z
     receipt_url: z.string().url().optional().nullable(),
     status: z.string().max(20).optional().nullable(),
     shared_with: z.array(z.string()).optional(),
+    shared_list_id: z.string().uuid().optional().nullable(),
   })
   .strict();
 
 const patchExpense = createExpense.partial();
+
+const expenseSelect = `e.id, e.user_id, e.amount::text, e.currency, e.category, e.description, e.date, e.tags, e.notes, e.source,
+  e.is_income, e.is_recurring, e.recurring_frequency, e.merchant, e.receipt_url, e.status, e.shared_with,
+  e.shared_list_id, e.created_at, e.updated_at, e.deleted_at`;
+
+const expenseReturning = `id, user_id, amount::text, currency, category, description, date, tags, notes, source,
+  is_income, is_recurring, recurring_frequency, merchant, receipt_url, status, shared_with,
+  shared_list_id, created_at, updated_at, deleted_at`;
 
 export type ExpenseRow = {
   id: string;
@@ -55,6 +84,7 @@ export type ExpenseRow = {
   receipt_url: string | null;
   status: string | null;
   shared_with: string[] | null;
+  shared_list_id: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -71,36 +101,41 @@ export function expensesRouter(pool: Pool, env: Env) {
       return;
     }
     const { userId } = req as AuthedRequest;
-    const { from, to, category, is_income, limit, offset } = q.data;
-    const cond: string[] = ["user_id = $1", "deleted_at IS NULL"];
+    const { from, to, category, is_income, shared_list_id: listFilter, limit, offset } = q.data;
     const params: unknown[] = [userId];
     let n = 2;
+    const extra: string[] = [];
 
     if (from) {
-      cond.push(`date >= $${n++}::timestamptz`);
+      extra.push(`e.date >= $${n++}::timestamptz`);
       params.push(from);
     }
     if (to) {
-      cond.push(`date <= $${n++}::timestamptz`);
+      extra.push(`e.date <= $${n++}::timestamptz`);
       params.push(to);
     }
     if (category !== undefined && category !== "") {
-      cond.push(`category = $${n++}`);
+      extra.push(`e.category = $${n++}`);
       params.push(category);
     }
     if (is_income !== undefined) {
-      cond.push(`is_income = $${n++}`);
+      extra.push(`e.is_income = $${n++}`);
       params.push(is_income === "true");
+    }
+    if (listFilter !== undefined) {
+      extra.push(`e.shared_list_id = $${n++}`);
+      params.push(listFilter);
     }
 
     params.push(limit, offset);
     const limIdx = n++;
     const offIdx = n;
-    const sql = `SELECT id, user_id, amount::text, currency, category, description, date, tags, notes, source,
-                        is_income, is_recurring, recurring_frequency, merchant, receipt_url, status, shared_with,
-                        created_at, updated_at, deleted_at
-                 FROM expenses WHERE ${cond.join(" AND ")}
-                 ORDER BY date DESC, created_at DESC
+
+    const where = [`e.deleted_at IS NULL`, EXPENSE_VISIBILITY_SQL, ...extra].join(" AND ");
+    const sql = `SELECT ${expenseSelect}
+                 FROM expenses e
+                 WHERE ${where}
+                 ORDER BY e.date DESC, e.created_at DESC
                  LIMIT $${limIdx} OFFSET $${offIdx}`;
     const { rows } = await pool.query<ExpenseRow>(sql, params);
     res.json({ expenses: rows, limit, offset });
@@ -114,11 +149,10 @@ export function expensesRouter(pool: Pool, env: Env) {
     }
     const { userId } = req as AuthedRequest;
     const { rows } = await pool.query<ExpenseRow>(
-      `SELECT id, user_id, amount::text, currency, category, description, date, tags, notes, source,
-              is_income, is_recurring, recurring_frequency, merchant, receipt_url, status, shared_with,
-              created_at, updated_at, deleted_at
-       FROM expenses WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
-      [idParse.data, userId],
+      `SELECT ${expenseSelect}
+       FROM expenses e
+       WHERE e.id = $2 AND e.deleted_at IS NULL AND ${EXPENSE_VISIBILITY_SQL}`,
+      [userId, idParse.data],
     );
     const row = rows[0];
     if (!row) {
@@ -136,6 +170,14 @@ export function expensesRouter(pool: Pool, env: Env) {
     }
     const { userId } = req as AuthedRequest;
     const b = parsed.data;
+    let sharedListId: string | null = b.shared_list_id ?? null;
+    if (sharedListId) {
+      const access = await getListAccess(pool, sharedListId, userId);
+      if (!canCreateExpenseOnList(access)) {
+        res.status(403).json({ error: "No podés cargar gastos en esta lista" });
+        return;
+      }
+    }
     const dateVal = new Date(b.date);
     if (Number.isNaN(dateVal.getTime())) {
       res.status(400).json({ error: "date inválida" });
@@ -144,13 +186,11 @@ export function expensesRouter(pool: Pool, env: Env) {
     const { rows } = await pool.query<ExpenseRow>(
       `INSERT INTO expenses (
          user_id, amount, currency, category, description, date, tags, notes, source,
-         is_income, is_recurring, recurring_frequency, merchant, receipt_url, status, shared_with
+         is_income, is_recurring, recurring_frequency, merchant, receipt_url, status, shared_with, shared_list_id
        ) VALUES (
-         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
        )
-       RETURNING id, user_id, amount::text, currency, category, description, date, tags, notes, source,
-                 is_income, is_recurring, recurring_frequency, merchant, receipt_url, status, shared_with,
-                 created_at, updated_at, deleted_at`,
+       RETURNING ${expenseReturning}`,
       [
         userId,
         b.amount,
@@ -168,6 +208,7 @@ export function expensesRouter(pool: Pool, env: Env) {
         b.receipt_url ?? null,
         b.status ?? null,
         b.shared_with ?? null,
+        sharedListId,
       ],
     );
     res.status(201).json({ expense: rows[0] });
@@ -191,6 +232,31 @@ export function expensesRouter(pool: Pool, env: Env) {
       return;
     }
     const { userId } = req as AuthedRequest;
+    const { rows: existingRows } = await pool.query<ExpenseRow>(
+      `SELECT ${expenseSelect}
+       FROM expenses e
+       WHERE e.id = $2 AND e.deleted_at IS NULL AND ${EXPENSE_VISIBILITY_SQL}`,
+      [userId, idParse.data],
+    );
+    const existing = existingRows[0];
+    if (!existing) {
+      res.status(404).json({ error: "Gasto no encontrado" });
+      return;
+    }
+    if (!(await canMutateExpense(pool, userId, existing))) {
+      res.status(403).json({ error: "No tenés permiso para editar este gasto" });
+      return;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "shared_list_id")) {
+      const next = body.shared_list_id;
+      if (next !== null && next !== undefined) {
+        const access = await getListAccess(pool, next, userId);
+        if (!canCreateExpenseOnList(access)) {
+          res.status(403).json({ error: "No podés asignar este gasto a esa lista" });
+          return;
+        }
+      }
+    }
     const setParts: string[] = [];
     const values: unknown[] = [];
     let i = 1;
@@ -209,12 +275,10 @@ export function expensesRouter(pool: Pool, env: Env) {
       values.push(v);
     }
     setParts.push(`updated_at = now()`);
-    values.push(idParse.data, userId);
+    values.push(idParse.data);
     const sql = `UPDATE expenses SET ${setParts.join(", ")}
-                 WHERE id = $${i++} AND user_id = $${i} AND deleted_at IS NULL
-                 RETURNING id, user_id, amount::text, currency, category, description, date, tags, notes, source,
-                           is_income, is_recurring, recurring_frequency, merchant, receipt_url, status, shared_with,
-                           created_at, updated_at, deleted_at`;
+                 WHERE id = $${i} AND deleted_at IS NULL
+                 RETURNING ${expenseReturning}`;
     const { rows } = await pool.query<ExpenseRow>(sql, values);
     const row = rows[0];
     if (!row) {
@@ -231,10 +295,27 @@ export function expensesRouter(pool: Pool, env: Env) {
       return;
     }
     const { userId } = req as AuthedRequest;
+    const { rows: existingRows } = await pool.query<{
+      user_id: string;
+      shared_list_id: string | null;
+    }>(
+      `SELECT e.user_id, e.shared_list_id FROM expenses e
+       WHERE e.id = $2 AND e.deleted_at IS NULL AND ${EXPENSE_VISIBILITY_SQL}`,
+      [userId, idParse.data],
+    );
+    const existing = existingRows[0];
+    if (!existing) {
+      res.status(404).json({ error: "Gasto no encontrado" });
+      return;
+    }
+    if (!(await canMutateExpense(pool, userId, existing))) {
+      res.status(403).json({ error: "No tenés permiso para eliminar este gasto" });
+      return;
+    }
     const { rowCount } = await pool.query(
       `UPDATE expenses SET deleted_at = now(), updated_at = now()
-       WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
-      [idParse.data, userId],
+       WHERE id = $1 AND deleted_at IS NULL`,
+      [idParse.data],
     );
     if (!rowCount) {
       res.status(404).json({ error: "Gasto no encontrado" });

@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
@@ -20,13 +20,43 @@ if (!parsed.success) {
   process.exit(1);
 }
 const env = parsed.data;
-const sqlPath = join(__dir, "..", "sql", "001_init.sql");
-const sql = readFileSync(sqlPath, "utf8");
+
+const sqlDir = join(projectRoot, "sql");
+const files = readdirSync(sqlDir)
+  .filter((f) => f.endsWith(".sql"))
+  .sort();
 
 const pool = new pg.Pool({ connectionString: env.DATABASE_URL });
 try {
-  await pool.query(sql);
-  console.log("Migración 001_init.sql aplicada.");
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      filename TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  const { rows: tbl } = await pool.query<{ c: number }>(
+    `SELECT COUNT(*)::int AS c
+     FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name = 'users'`,
+  );
+  if (tbl[0]?.c > 0) {
+    await pool.query(
+      `INSERT INTO schema_migrations (filename) VALUES ('001_init.sql') ON CONFLICT (filename) DO NOTHING`,
+    );
+  }
+
+  for (const f of files) {
+    const done = await pool.query(`SELECT 1 FROM schema_migrations WHERE filename = $1`, [f]);
+    if (done.rowCount) {
+      console.log(`Migración ${f} ya aplicada, se omite.`);
+      continue;
+    }
+    const sql = readFileSync(join(sqlDir, f), "utf8");
+    await pool.query(sql);
+    await pool.query(`INSERT INTO schema_migrations (filename) VALUES ($1)`, [f]);
+    console.log(`Migración ${f} aplicada.`);
+  }
 } finally {
   await pool.end();
 }
