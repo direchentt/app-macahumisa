@@ -22,7 +22,8 @@ import { requestIdMiddleware, type RequestWithId } from "./middleware/requestId.
 export function createApp(env: Env, pool: Pool) {
   const appDir = dirname(fileURLToPath(import.meta.url));
   const spaDir = join(appDir, "..", "web", "dist");
-  const spaExists = env.NODE_ENV === "production" && existsSync(join(spaDir, "index.html"));
+  /** Si hay build de Vite en web/dist, servir la app aunque NODE_ENV no sea production (p. ej. Railway sin la var). */
+  const spaExists = existsSync(join(spaDir, "index.html"));
 
   const app = express();
   if (env.NODE_ENV === "production") {
