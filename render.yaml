@@ -1,0 +1,18 @@
+# Blueprint Render: New → Blueprint → conectar este repo.
+# En el panel, agregá DATABASE_URL y JWT_SECRET (Environment).
+services:
+  - type: web
+    name: macahumisa-api
+    runtime: node
+    plan: free
+    region: ohio
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
