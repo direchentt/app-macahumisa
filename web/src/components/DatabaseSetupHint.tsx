@@ -1,31 +1,72 @@
+import { useCallback, useState } from "react";
 import { isDatabaseSetupMessage } from "../lib/isDatabaseSetupMessage";
 
 type Props = {
   message: string | null | undefined;
 };
 
+const MIGRATE_CMD = "npm run db:migrate";
+
 export function DatabaseSetupHint({ message }: Props) {
+  const [copied, setCopied] = useState(false);
+
+  const copyCmd = useCallback(() => {
+    void (async () => {
+      try {
+        await navigator.clipboard.writeText(MIGRATE_CMD);
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 2000);
+      } catch {
+        /* sin permisos de portapapeles */
+      }
+    })();
+  }, []);
+
   if (!message || !isDatabaseSetupMessage(message)) return null;
+
   return (
-    <div className="dash-alert dash-alert--setup" role="status" style={{ marginBottom: 16 }}>
-      <strong>Tenés que sincronizar la base de datos con el código.</strong>
-      <ol style={{ margin: "12px 0 0", paddingLeft: "1.25rem", lineHeight: 1.6 }}>
+    <div className="dash-alert dash-alert--setup db-setup-hint" role="status">
+      <p className="db-setup-hint__lead">
+        <strong>La base de datos está desactualizada respecto al código.</strong> No es un fallo del navegador: hay que aplicar las
+        migraciones SQL en PostgreSQL (crean o alteran tablas y columnas).
+      </p>
+      <ol className="db-setup-hint__steps">
         <li>
-          Terminal en la raíz del proyecto (donde está <code>package.json</code>), no dentro de <code>web/</code>.
+          Abrí una terminal en la <strong>carpeta raíz del repo</strong> (donde está el <code className="db-setup-hint__mono">package.json</code> del
+          backend), <strong>no</strong> dentro de <code className="db-setup-hint__mono">web/</code>.
         </li>
         <li>
-          Archivo <code>.env</code> con <code>DATABASE_URL=postgresql://...</code>.
+          En esa misma carpeta, el archivo <code className="db-setup-hint__mono">.env</code> debe incluir{" "}
+          <code className="db-setup-hint__mono">DATABASE_URL=postgresql://…</code> apuntando a la misma base que usa tu API (local o
+          producción).
         </li>
         <li>
-          Ejecutá: <code>npm run db:migrate</code>
+          Ejecutá el comando (podés copiarlo):
+          <div className="db-setup-hint__cmd-row">
+            <pre className="db-setup-hint__pre" tabIndex={0}>
+              <code>{MIGRATE_CMD}</code>
+            </pre>
+            <button type="button" className="db-setup-hint__copy" onClick={copyCmd}>
+              {copied ? "Copiado" : "Copiar"}
+            </button>
+          </div>
         </li>
         <li>
-          Reiniciá la API (<code>npm run dev</code> en la raíz) y recargá esta página.
+          Reiniciá el proceso de la API (<code className="db-setup-hint__mono">npm run dev</code> o el deploy) y recargá esta página.
         </li>
       </ol>
-      <p style={{ margin: "12px 0 0", fontSize: "0.85rem", opacity: 0.95 }}>
-        Si ves algo como «column … does not exist», es casi seguro que falta correr la migración: agrega tablas y columnas nuevas
-        (por ejemplo <code>due_date</code> en gastos).
+      <details className="db-setup-hint__cloud">
+        <summary>Si la app está hosteada (Railway, Render, Fly, VPS…)</summary>
+        <p>
+          El comando <code className="db-setup-hint__mono">npm run db:migrate</code> tiene que correrse <strong>donde exista</strong>{" "}
+          <code className="db-setup-hint__mono">DATABASE_URL</code>: por ejemplo como <strong>release command</strong> / paso previo al
+          start, o desde tu PC con la URI de la base de producción (con cuidado). La carpeta <code className="db-setup-hint__mono">web/</code>{" "}
+          no ejecuta migraciones.
+        </p>
+      </details>
+      <p className="db-setup-hint__foot">
+        Mensajes como «column … does not exist» o «relation … does not exist» suelen indicar exactamente esto: falta una migración
+        reciente (por ejemplo tablas de <em>Día a día</em> o columnas nuevas en gastos).
       </p>
     </div>
   );

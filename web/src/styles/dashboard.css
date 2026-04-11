@@ -372,14 +372,104 @@
   color: var(--text);
 }
 
-.dash-alert--setup code {
-  display: block;
+/* Guía migraciones — evitar estilos globales a todo <code> dentro del aviso */
+.db-setup-hint__lead {
+  margin: 0 0 12px;
+}
+
+.db-setup-hint__steps {
+  margin: 0;
+  padding-left: 1.2rem;
+  line-height: 1.55;
+}
+
+.db-setup-hint__steps li {
+  margin-bottom: 10px;
+}
+
+.db-setup-hint__steps li:last-child {
+  margin-bottom: 0;
+}
+
+.db-setup-hint__mono {
+  font-size: 0.88em;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.db-setup-hint__cmd-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 10px;
   margin-top: 10px;
+}
+
+.db-setup-hint__pre {
+  flex: 1 1 200px;
+  margin: 0;
   padding: 10px 12px;
   border-radius: var(--radius-sm);
   background: var(--bg-elevated);
+  border: 1px solid var(--border);
   font-size: 0.85rem;
   overflow-x: auto;
+}
+
+.db-setup-hint__pre code {
+  font-family: ui-monospace, monospace;
+}
+
+.db-setup-hint__copy {
+  flex-shrink: 0;
+  align-self: center;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 0.8rem;
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+  color: var(--text);
+}
+
+.db-setup-hint__copy:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.db-setup-hint__copy:focus-visible {
+  outline: 2px solid var(--cta);
+  outline-offset: 2px;
+}
+
+.db-setup-hint__cloud {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed color-mix(in srgb, var(--border) 90%, var(--text));
+  background: color-mix(in srgb, var(--bg-elevated) 70%, transparent);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.db-setup-hint__cloud summary {
+  cursor: pointer;
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+}
+
+.db-setup-hint__cloud p {
+  margin: 10px 0 0;
+}
+
+.db-setup-hint__foot {
+  margin: 14px 0 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text-muted);
 }
 
 /* KPI cards — bloque color + pie pastel */
