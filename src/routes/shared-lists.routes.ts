@@ -147,6 +147,126 @@ export function sharedListsRouter(pool: Pool, env: Env) {
     res.json({ activity: rows });
   });
 
+  /** Reparto equitativo de gastos de la lista (solo gastos, no ingresos): quién pagó de más y sugerencias de transferencias. */
+  r.get("/:id/split-expenses", auth, async (req, res) => {
+    const idParse = uuid.safeParse(req.params.id);
+    if (!idParse.success) {
+      res.status(400).json({ error: "id inválido" });
+      return;
+    }
+    const { userId } = req as AuthedRequest;
+    const access = await getListAccess(pool, idParse.data, userId);
+    if (!isListParticipant(access)) {
+      res.status(404).json({ error: "Lista no encontrada" });
+      return;
+    }
+    const { rows: memberRows } = await pool.query<{ user_id: string; email: string }>(
+      `SELECT sl.owner_id AS user_id, u.email FROM shared_lists sl JOIN users u ON u.id = sl.owner_id AND u.deleted_at IS NULL WHERE sl.id = $1
+       UNION
+       SELECT m.user_id, u.email FROM memberships m JOIN users u ON u.id = m.user_id AND u.deleted_at IS NULL WHERE m.list_id = $1`,
+      [idParse.data],
+    );
+    const memberIds = [...new Set(memberRows.map((m) => m.user_id))];
+    const emailByUser = Object.fromEntries(memberRows.map((m) => [m.user_id, m.email]));
+
+    const { rows: expRows } = await pool.query<{ user_id: string; amount: string; currency: string }>(
+      `SELECT user_id, amount::text, currency FROM expenses
+       WHERE shared_list_id = $1 AND deleted_at IS NULL AND is_income = false`,
+      [idParse.data],
+    );
+
+    type CurAgg = { total: number; paid: Record<string, number> };
+    const byCur = new Map<string, CurAgg>();
+    for (const e of expRows) {
+      const cur = e.currency || "USD";
+      const amt = Number(e.amount);
+      if (!byCur.has(cur)) byCur.set(cur, { total: 0, paid: {} });
+      const g = byCur.get(cur)!;
+      g.total += amt;
+      g.paid[e.user_id] = (g.paid[e.user_id] ?? 0) + amt;
+    }
+
+    const n = Math.max(1, memberIds.length);
+    const currencies: Record<
+      string,
+      {
+        total: string;
+        per_person: string;
+        paid_by_user: Record<string, string>;
+        balance_by_user: Record<string, string>;
+        suggestions: { from_user_id: string; to_user_id: string; amount: string; from_email: string; to_email: string }[];
+      }
+    > = {};
+
+    const settle = (balance: Map<string, number>) => {
+      const eps = 0.02;
+      const b = new Map(balance);
+      const sug: { from_user_id: string; to_user_id: string; amount: string; from_email: string; to_email: string }[] = [];
+      for (;;) {
+        let debtor: string | null = null;
+        let creditor: string | null = null;
+        let bestD = 0;
+        let bestC = 0;
+        for (const [uid, v] of b) {
+          if (v < bestD - eps) {
+            bestD = v;
+            debtor = uid;
+          }
+        }
+        for (const [uid, v] of b) {
+          if (v > bestC + eps) {
+            bestC = v;
+            creditor = uid;
+          }
+        }
+        if (!debtor || !creditor) break;
+        const dv = b.get(debtor)!;
+        const cv = b.get(creditor)!;
+        const pay = Math.min(-dv, cv);
+        if (pay < eps) break;
+        sug.push({
+          from_user_id: debtor,
+          to_user_id: creditor,
+          amount: pay.toFixed(2),
+          from_email: emailByUser[debtor] ?? debtor,
+          to_email: emailByUser[creditor] ?? creditor,
+        });
+        b.set(debtor, dv + pay);
+        b.set(creditor, cv - pay);
+      }
+      return sug;
+    };
+
+    for (const [cur, agg] of byCur.entries()) {
+      const per = agg.total / n;
+      const paidBy: Record<string, string> = {};
+      const bal: Record<string, string> = {};
+      const balMap = new Map<string, number>();
+      for (const mid of memberIds) {
+        const p = agg.paid[mid] ?? 0;
+        paidBy[mid] = p.toFixed(2);
+        const b = p - per;
+        bal[mid] = b.toFixed(2);
+        balMap.set(mid, b);
+      }
+      currencies[cur] = {
+        total: agg.total.toFixed(2),
+        per_person: per.toFixed(2),
+        paid_by_user: paidBy,
+        balance_by_user: bal,
+        suggestions: settle(balMap),
+      };
+    }
+
+    res.json({
+      list_id: idParse.data,
+      member_count: n,
+      members: memberIds.map((id) => ({ user_id: id, email: emailByUser[id] ?? id })),
+      currencies,
+      note: "Cada gasto se atribuye a quien lo cargó. El reparto asume partes iguales entre todos los miembros.",
+    });
+  });
+
   r.post("/:id/members", auth, async (req, res) => {
     const idParse = uuid.safeParse(req.params.id);
     if (!idParse.success) {

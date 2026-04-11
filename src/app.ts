@@ -17,6 +17,9 @@ import { savingsGoalsRouter } from "./routes/savings-goals.routes.js";
 import { categoryRulesRouter } from "./routes/category-rules.routes.js";
 import { webhooksRouter } from "./routes/webhooks.routes.js";
 import { auditRouter } from "./routes/audit.routes.js";
+import { remindersRouter } from "./routes/reminders.routes.js";
+import { shoppingRouter } from "./routes/shopping.routes.js";
+import { notesRouter } from "./routes/notes.routes.js";
 import { mapServerError } from "./lib/mapServerError.js";
 import { requestIdMiddleware, type RequestWithId } from "./middleware/requestId.js";
 
@@ -60,6 +63,10 @@ export function createApp(env: Env, pool: Pool) {
           savingsGoals: "/api/v1/savings-goals (Bearer)",
           categoryRules: "/api/v1/category-rules (Bearer)",
           webhooks: "/api/v1/webhooks (Bearer)",
+          audit: "/api/v1/audit (Bearer)",
+          reminders: "/api/v1/reminders (Bearer)",
+          shoppingItems: "/api/v1/shopping-items (Bearer)",
+          notes: "/api/v1/notes (Bearer)",
         },
       });
     });
@@ -76,6 +83,9 @@ export function createApp(env: Env, pool: Pool) {
   app.use("/api/v1/category-rules", categoryRulesRouter(pool, env));
   app.use("/api/v1/webhooks", webhooksRouter(pool, env));
   app.use("/api/v1/audit", auditRouter(pool, env));
+  app.use("/api/v1/reminders", remindersRouter(pool, env));
+  app.use("/api/v1/shopping-items", shoppingRouter(pool, env));
+  app.use("/api/v1/notes", notesRouter(pool, env));
 
   if (spaExists) {
     app.use(express.static(spaDir));

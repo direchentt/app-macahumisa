@@ -637,3 +637,130 @@ export async function importBackup(
     },
   });
 }
+
+/* —— Día a día: recordatorios, compras, notas, reparto —— */
+
+export type Reminder = {
+  id: string;
+  user_id: string;
+  shared_list_id: string | null;
+  title: string;
+  body: string | null;
+  remind_at: string;
+  ends_at: string | null;
+  repeat_kind: string;
+  reminder_kind: string;
+  meta: Record<string, unknown> | null;
+  last_notified_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function listReminders(token: string) {
+  return apiFetch<{ reminders: Reminder[] }>("/reminders", token);
+}
+
+export async function createReminder(
+  token: string,
+  body: {
+    title: string;
+    body?: string | null;
+    remind_at: string;
+    ends_at?: string | null;
+    repeat_kind?: "none" | "daily" | "weekly" | "monthly";
+    reminder_kind?: "reminder" | "expiration" | "agenda" | "routine";
+    meta?: Record<string, unknown> | null;
+    shared_list_id?: string | null;
+  },
+) {
+  return apiFetch<{ reminder: Reminder }>("/reminders", token, { method: "POST", json: body });
+}
+
+export async function patchReminder(token: string, id: string, body: Partial<{ title: string; body: string | null; remind_at: string; ends_at: string | null; repeat_kind: string; reminder_kind: string; meta: Record<string, unknown> | null; shared_list_id: string | null; completed_at: boolean }>) {
+  return apiFetch<{ reminder: Reminder }>(`/reminders/${id}`, token, { method: "PATCH", json: body });
+}
+
+export async function completeReminder(token: string, id: string) {
+  return apiFetch<{ reminder: Reminder }>(`/reminders/${id}/complete`, token, { method: "POST", json: {} });
+}
+
+export async function deleteReminder(token: string, id: string) {
+  await apiFetch<unknown>(`/reminders/${id}`, token, { method: "DELETE" });
+}
+
+export type ShoppingItem = {
+  id: string;
+  user_id: string;
+  shared_list_id: string | null;
+  label: string;
+  done: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function listShoppingItems(token: string, sharedListId?: string | null) {
+  const q = sharedListId === undefined ? "" : `?shared_list_id=${sharedListId === null ? "personal" : encodeURIComponent(sharedListId)}`;
+  return apiFetch<{ items: ShoppingItem[] }>(`/shopping-items${q}`, token);
+}
+
+export async function createShoppingItem(token: string, body: { label: string; shared_list_id?: string | null }) {
+  return apiFetch<{ item: ShoppingItem }>("/shopping-items", token, { method: "POST", json: body });
+}
+
+export async function patchShoppingItem(token: string, id: string, body: Partial<{ label: string; done: boolean; sort_order: number }>) {
+  return apiFetch<{ item: ShoppingItem }>(`/shopping-items/${id}`, token, { method: "PATCH", json: body });
+}
+
+export async function deleteShoppingItem(token: string, id: string) {
+  await apiFetch<unknown>(`/shopping-items/${id}`, token, { method: "DELETE" });
+}
+
+export type UserNote = {
+  id: string;
+  user_id: string;
+  shared_list_id: string | null;
+  content: string;
+  pinned: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function listNotes(token: string, sharedListId?: string | null) {
+  const q = sharedListId === undefined ? "" : `?shared_list_id=${sharedListId === null ? "personal" : encodeURIComponent(sharedListId)}`;
+  return apiFetch<{ notes: UserNote[] }>(`/notes${q}`, token);
+}
+
+export async function createNote(token: string, body: { content: string; shared_list_id?: string | null; pinned?: boolean }) {
+  return apiFetch<{ note: UserNote }>("/notes", token, { method: "POST", json: body });
+}
+
+export async function patchNote(token: string, id: string, body: Partial<{ content: string; pinned: boolean }>) {
+  return apiFetch<{ note: UserNote }>(`/notes/${id}`, token, { method: "PATCH", json: body });
+}
+
+export async function deleteNote(token: string, id: string) {
+  await apiFetch<unknown>(`/notes/${id}`, token, { method: "DELETE" });
+}
+
+export type ListExpenseSplitResponse = {
+  list_id: string;
+  member_count: number;
+  members: { user_id: string; email: string }[];
+  currencies: Record<
+    string,
+    {
+      total: string;
+      per_person: string;
+      paid_by_user: Record<string, string>;
+      balance_by_user: Record<string, string>;
+      suggestions: { from_user_id: string; to_user_id: string; amount: string; from_email: string; to_email: string }[];
+    }
+  >;
+  note: string;
+};
+
+export async function getListExpenseSplit(token: string, listId: string) {
+  return apiFetch<ListExpenseSplitResponse>(`/shared-lists/${listId}/split-expenses`, token);
+}

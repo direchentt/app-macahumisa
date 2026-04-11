@@ -16,6 +16,7 @@ const fmt = (iso: string) =>
   new Intl.DateTimeFormat("es", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
 
 function groupKey(n: Notification): string {
+  if (n.type === "reminder_due") return "_recordatorios";
   const raw = n.payload?.shared_list_id;
   if (typeof raw === "string" && raw.trim()) return raw.trim();
   return "_otros";
@@ -50,6 +51,8 @@ export function NotificationsPage({ onRead }: Props) {
       m.get(k)!.push(n);
     }
     const keys = [...m.keys()].sort((a, b) => {
+      if (a === "_recordatorios") return -1;
+      if (b === "_recordatorios") return 1;
       if (a === "_otros") return 1;
       if (b === "_otros") return -1;
       return (listNames[a] ?? a).localeCompare(listNames[b] ?? b, "es");
@@ -93,7 +96,11 @@ export function NotificationsPage({ onRead }: Props) {
         <div className="notif-groups">
           {grouped.map(({ key, notifications }) => {
             const title =
-              key === "_otros" ? "Otros avisos" : `Lista «${listNames[key] ?? "sin nombre"}»`;
+              key === "_recordatorios"
+                ? "Recordatorios"
+                : key === "_otros"
+                  ? "Otros avisos"
+                  : `Lista «${listNames[key] ?? "sin nombre"}»`;
             const unread = notifications.filter((n) => !n.read_at).length;
             return (
               <details key={key} className="notif-group" open>

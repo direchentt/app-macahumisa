@@ -10,6 +10,8 @@ import {
   listExpenses,
   listSavingsGoals,
   listSharedLists,
+  listReminders,
+  listShoppingItems,
   getBudgetUsage,
   NetworkFailure,
   updateExpense,
@@ -43,6 +45,7 @@ type Props = {
   onDataChange?: () => void;
   onNavigate?: (view: "budgets" | "goals") => void;
   onOpenTour?: () => void;
+  onOpenDayHub?: () => void;
   onOpenHistoryForExpense?: (expenseId: string) => void;
 };
 
@@ -105,7 +108,13 @@ function upcomingDues(expenses: Expense[], days: number) {
     .sort((a, b) => new Date(a.due_date!).getTime() - new Date(b.due_date!).getTime());
 }
 
-export function DashboardPage({ onDataChange, onNavigate, onOpenTour, onOpenHistoryForExpense }: Props) {
+export function DashboardPage({
+  onDataChange,
+  onNavigate,
+  onOpenTour,
+  onOpenDayHub,
+  onOpenHistoryForExpense,
+}: Props) {
   const { token, userId } = useAuth();
   const { showToast } = useToast();
   const [welcomeDismissedLocal, setWelcomeDismissedLocal] = useState(false);
@@ -145,6 +154,7 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour, onOpenHist
   const [category, setCategory] = useState("");
   const [listFilter, setListFilter] = useState("");
   const [incomeFilter, setIncomeFilter] = useState<"all" | "in" | "out">("all");
+  const [dayHubPeek, setDayHubPeek] = useState<{ remindersSoon: number; shoppingOpen: number } | null>(null);
 
   const filtersExtra = Boolean(q.trim() || category.trim() || listFilter || incomeFilter !== "all");
   const filtersActive =
@@ -157,6 +167,37 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour, onOpenHist
     }
     setPendingOps(await listPendingOps(userId));
   }, [userId]);
+
+  useEffect(() => {
+    if (!token) {
+      setDayHubPeek(null);
+      return;
+    }
+    const auth = token;
+    let cancelled = false;
+    async function peek() {
+      try {
+        const [re, sh] = await Promise.all([listReminders(auth), listShoppingItems(auth, null)]);
+        if (cancelled) return;
+        const now = Date.now();
+        const weekAhead = now + 7 * 86400000;
+        const remindersSoon = re.reminders.filter((x) => new Date(x.remind_at).getTime() <= weekAhead).length;
+        const shoppingOpen = sh.items.filter((i) => !i.done).length;
+        setDayHubPeek({ remindersSoon, shoppingOpen });
+      } catch {
+        if (!cancelled) setDayHubPeek(null);
+      }
+    }
+    void peek();
+    const onVis = () => {
+      if (document.visibilityState === "visible") void peek();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [token]);
 
   const queryParams = useMemo((): ExpenseListQuery => {
     const p: ExpenseListQuery = { limit: 250 };
@@ -817,6 +858,26 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour, onOpenHist
           </div>
         </section>
       )}
+
+      {onOpenDayHub &&
+        dayHubPeek &&
+        (dayHubPeek.remindersSoon > 0 || dayHubPeek.shoppingOpen > 0) && (
+          <section className="dash-daypeek" aria-label="Resumen día a día">
+            <button type="button" className="dash-daypeek__btn" onClick={onOpenDayHub}>
+              <span className="dash-daypeek__label">Día a día</span>
+              <span className="dash-daypeek__meta">
+                {[
+                  dayHubPeek.remindersSoon > 0
+                    ? `${dayHubPeek.remindersSoon} recordatorio(s) (vencidos o próx. 7 días)`
+                    : null,
+                  dayHubPeek.shoppingOpen > 0 ? `${dayHubPeek.shoppingOpen} ítem(s) de compra sin tachar` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
+            </button>
+          </section>
+        )}
 
       {smartHints.length > 0 && (
         <section className="dash-smart-strip" aria-label="Sugerencias">

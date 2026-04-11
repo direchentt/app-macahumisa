@@ -3,6 +3,7 @@ import { useAuth } from "../contexts/AuthContext";
 import {
   IconBell,
   IconChart,
+  IconDayHub,
   IconHistory,
   IconHome,
   IconLogo,
@@ -17,7 +18,15 @@ import {
 } from "./AppIcons";
 import { UserAvatarChip } from "./UserAvatarChip";
 
-export type AppView = "dashboard" | "notifications" | "budgets" | "lists" | "goals" | "settings" | "history";
+export type AppView =
+  | "dashboard"
+  | "notifications"
+  | "budgets"
+  | "lists"
+  | "goals"
+  | "settings"
+  | "history"
+  | "dayhub";
 
 type Props = {
   unreadNotifications: number;
@@ -34,6 +43,7 @@ const navTitle: Record<AppView, string> = {
   goals: "Objetivos de ahorro",
   settings: "Reglas, webhook, respaldo y tema",
   history: "Cambios en tus movimientos",
+  dayhub: "Recordatorios, compras, notas y reparto",
 };
 
 const pageHeading: Record<AppView, string> = {
@@ -44,6 +54,7 @@ const pageHeading: Record<AppView, string> = {
   goals: "Metas",
   settings: "Ajustes",
   history: "Historial",
+  dayhub: "Día a día",
 };
 
 export function Header({ unreadNotifications, view, onNavigate, onOpenTour }: Props) {
@@ -52,7 +63,8 @@ export function Header({ unreadNotifications, view, onNavigate, onOpenTour }: Pr
   const [moreOpen, setMoreOpen] = useState(false);
 
   const navBtn = (v: AppView) => `app-nav-pill${view === v ? " app-nav-pill--active" : ""}`;
-  const moreTabActive = view === "notifications" || view === "settings" || view === "history";
+  const moreTabActive =
+    view === "notifications" || view === "settings" || view === "history" || view === "dayhub";
 
   useEffect(() => {
     if (!moreOpen) return;
@@ -131,6 +143,10 @@ export function Header({ unreadNotifications, view, onNavigate, onOpenTour }: Pr
             <IconUsers className="app-nav-pill__icon" />
             <span>Listas</span>
           </button>
+          <button type="button" title={navTitle.dayhub} className={navBtn("dayhub")} onClick={() => onNavigate("dayhub")}>
+            <IconDayHub className="app-nav-pill__icon" />
+            <span>Día a día</span>
+          </button>
           <button type="button" title={navTitle.notifications} className={navBtn("notifications")} onClick={() => onNavigate("notifications")}>
             <IconBell className="app-nav-pill__icon" />
             <span>Avisos</span>
@@ -202,6 +218,10 @@ export function Header({ unreadNotifications, view, onNavigate, onOpenTour }: Pr
               <p className="app-more__email">{email}</p>
             </div>
             <div className="app-more__actions">
+              <button type="button" className="app-more__row" onClick={() => go("dayhub")}>
+                <IconDayHub className="app-more__row-icon" />
+                <span>Día a día</span>
+              </button>
               <button type="button" className="app-more__row" onClick={() => go("notifications")}>
                 <IconBell className="app-more__row-icon" />
                 <span>Avisos</span>

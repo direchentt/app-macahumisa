@@ -9,6 +9,7 @@ import { SharedListsPage } from "./pages/SharedListsPage";
 import { GoalsPage } from "./pages/GoalsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { HistoryPage } from "./pages/HistoryPage";
+import { DayToDayPage } from "./pages/DayToDayPage";
 import { Header, type AppView } from "./components/Header";
 import { Onboarding } from "./components/Onboarding";
 import { isOnboardingComplete, setOnboardingComplete } from "./lib/onboardingStorage";
@@ -96,6 +97,7 @@ export default function App() {
             onDataChange={refreshUnread}
             onNavigate={(v) => setView(v === "budgets" ? "budgets" : "goals")}
             onOpenTour={() => setShowOnboarding(true)}
+            onOpenDayHub={() => setView("dayhub")}
             onOpenHistoryForExpense={(expenseId) => {
               setHistoryFocusExpenseId(expenseId);
               setView("history");
@@ -106,6 +108,7 @@ export default function App() {
         {view === "budgets" && <BudgetsPage />}
         {view === "goals" && <GoalsPage />}
         {view === "lists" && <SharedListsPage />}
+        {view === "dayhub" && <DayToDayPage />}
         {view === "history" && (
           <HistoryPage
             focusExpenseId={historyFocusExpenseId}
