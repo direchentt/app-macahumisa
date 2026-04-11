@@ -1,6 +1,12 @@
 import pg from "pg";
-import { parseIntoClientConfig } from "pg-connection-string";
+import { createRequire } from "node:module";
+import type { ClientConfig } from "pg";
 import type { Env } from "../config/env.js";
+
+const require = createRequire(import.meta.url);
+const { parseIntoClientConfig } = require("pg-connection-string") as {
+  parseIntoClientConfig: (connectionString: string) => ClientConfig;
+};
 
 /**
  * Con `connectionString` + `ssl` en el mismo Pool, node-pg hace merge con el parse de la URL y

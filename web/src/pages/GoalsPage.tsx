@@ -10,6 +10,7 @@ import {
   updateSavingsGoal,
   type SavingsGoal,
 } from "../api/client";
+import { savingsGoalInsight } from "../lib/savingsGoalInsight";
 
 const fmt = (n: string, c: string) =>
   new Intl.NumberFormat("es", { style: "currency", currency: c || "USD" }).format(Number(n));
@@ -106,7 +107,7 @@ export function GoalsPage() {
       <header className="app-page-head">
         <p className="app-page-eyebrow">Ahorro</p>
         <h1 className="app-page-title">Metas de ahorro</h1>
-        <p className="app-page-lead">Definí un objetivo y llevá el registro manual del ahorrado. El progreso es orientativo.</p>
+        <p className="app-page-lead">Marcá cuánto querés juntar y actualizá el ahorrado a mano. El ritmo vs. fecha es orientativo.</p>
       </header>
       <DatabaseSetupHint message={err} />
       {err && !isDatabaseSetupMessage(err) && <p className="app-error-banner">{err}</p>}
@@ -150,13 +151,14 @@ export function GoalsPage() {
         <p className="app-loading-text">Cargando…</p>
       ) : goals.length === 0 ? (
         <div className="app-empty-card">
-          <p style={{ margin: 0, fontWeight: 600, color: "var(--text)" }}>Aún no cargaste metas</p>
-          <p style={{ margin: "10px 0 0", fontSize: "0.9rem" }}>Usá el formulario de arriba para el primer objetivo.</p>
+          <p style={{ margin: 0, fontWeight: 600, color: "var(--text)" }}>Sin metas todavía</p>
+          <p style={{ margin: "10px 0 0", fontSize: "0.88rem", color: "var(--text-muted)" }}>Completá el formulario de arriba y guardá.</p>
         </div>
       ) : (
         <ul className="app-card-list">
           {goals.map((g) => {
             const pct = Math.min(100, (Number(g.saved_amount) / Number(g.target_amount)) * 100);
+            const insight = savingsGoalInsight(g);
             return (
               <li key={g.id} className="app-card app-card--goals">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
@@ -187,6 +189,27 @@ export function GoalsPage() {
                   <div style={{ width: `${pct}%`, height: "100%", background: "var(--brand-mint)", transition: "width 0.3s ease" }} />
                 </div>
                 <p style={{ margin: "8px 0 0", fontSize: "0.85rem", color: "var(--text-muted)" }}>{pct.toFixed(0)}% del objetivo</p>
+                {insight ? (
+                  <p
+                    style={{
+                      margin: "10px 0 0",
+                      fontSize: "0.82rem",
+                      fontWeight: 600,
+                      color:
+                        insight === "Buen ritmo vs. plazo"
+                          ? "var(--brand-mint)"
+                          : insight === "Ritmo por debajo del plazo" || insight === "Meta vencida sin completar"
+                            ? "var(--danger)"
+                            : "var(--text-muted)",
+                    }}
+                  >
+                    {insight}
+                  </p>
+                ) : g.deadline ? (
+                  <p style={{ margin: "10px 0 0", fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                    Ritmo acorde al plazo (estimado).
+                  </p>
+                ) : null}
                 <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
                   <button type="button" onClick={() => bumpSaved(g, 500)} className="app-btn-ghost">
                     +500

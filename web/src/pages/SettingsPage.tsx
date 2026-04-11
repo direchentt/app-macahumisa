@@ -153,10 +153,9 @@ export function SettingsPage() {
   return (
     <main style={{ flex: 1, padding: "24px", maxWidth: 720, margin: "0 auto", width: "100%" }}>
       <h1 style={{ margin: "0 0 8px", fontSize: "1.5rem" }}>Ajustes</h1>
-      <p style={{ margin: "0 0 24px", color: "var(--text-muted)" }}>
-        Reglas de categoría: si la nota o descripción contiene el texto (sin distinguir mayúsculas), se asigna la categoría al
-        crear un gasto (si dejaste categoría vacía). Webhook: recibís un POST JSON con{" "}
-        <code style={{ fontSize: "0.85em" }}>event: &quot;expense.created&quot;</code> cada vez que cargás un gasto.
+      <p className="settings-intro">
+        Reglas: la nota puede fijar la categoría sola si la dejás vacía al guardar. Webhook: un POST JSON por cada gasto nuevo (
+        <code className="settings-intro-code">expense.created</code>).
       </p>
       {user ? (
         <section className="settings-avatar-wrap" style={{ marginBottom: 32 }}>
@@ -337,6 +336,42 @@ export function SettingsPage() {
             )}
           </div>
         </form>
+
+        <details className="settings-webhook-help">
+          <summary className="settings-webhook-help-summary">Plantillas e ideas de uso</summary>
+          <div className="settings-webhook-help-body">
+            <p style={{ margin: "0 0 10px", fontSize: "0.88rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
+              Cada vez que <strong>vos</strong> cargás un gasto o ingreso, la API hace un <code>POST</code> JSON al URL guardado (timeout ~8s; los
+              fallos no bloquean el guardado). Podés apuntar a Zapier, Make, un worker en Cloudflare, o tu propio script.
+            </p>
+            <ul className="settings-webhook-ideas">
+              <li>
+                <strong>Slack / Discord:</strong> un endpoint intermedio que traduzca el JSON a el formato del webhook entrante del chat.
+              </li>
+              <li>
+                <strong>Alerta por monto:</strong> en tu servidor, si <code>Number(expense.amount) &gt; 50000</code> y{" "}
+                <code>!expense.is_income</code>, enviá mail o notificación.
+              </li>
+              <li>
+                <strong>Listas compartidas:</strong> si <code>expense.shared_list_id</code> no es <code>null</code>, el gasto es visible para la lista; podés etiquetar el mensaje según el id.
+              </li>
+            </ul>
+            <p style={{ margin: "12px 0 6px", fontSize: "0.8rem", fontWeight: 700, color: "var(--text-muted)" }}>Cuerpo de ejemplo</p>
+            <pre className="settings-webhook-pre">{`{
+  "event": "expense.created",
+  "expense": {
+    "id": "uuid",
+    "amount": "1200.50",
+    "currency": "ARS",
+    "category": "comida",
+    "description": "super",
+    "date": "2026-04-11T15:00:00.000Z",
+    "is_income": false,
+    "shared_list_id": null
+  }
+}`}</pre>
+          </div>
+        </details>
       </section>
     </main>
   );

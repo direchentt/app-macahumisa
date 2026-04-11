@@ -27,13 +27,13 @@ type Props = {
 };
 
 const navTitle: Record<AppView, string> = {
-  dashboard: "Registrar y ver movimientos personales o de listas",
-  budgets: "Topes por categoría y consumo del período",
-  lists: "Listas compartidas e invitaciones por email",
-  notifications: "Avisos cuando hay actividad en tus listas",
-  goals: "Metas de ahorro y progreso",
-  settings: "Reglas automáticas, webhook y apariencia",
-  history: "Quién cambió qué en tus gastos visibles",
+  dashboard: "Cargar y revisar gastos e ingresos",
+  budgets: "Tope por categoría y cuánto llevás",
+  lists: "Listas compartidas e invitaciones",
+  notifications: "Actividad en tus listas",
+  goals: "Objetivos de ahorro",
+  settings: "Reglas, webhook, respaldo y tema",
+  history: "Cambios en tus movimientos",
 };
 
 const pageHeading: Record<AppView, string> = {

@@ -19,6 +19,7 @@ export default function App() {
   const [view, setView] = useState<AppView>("dashboard");
   const [unread, setUnread] = useState(0);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [historyFocusExpenseId, setHistoryFocusExpenseId] = useState<string | null>(null);
 
   const refreshUnread = useCallback(async () => {
     if (!token) {
@@ -36,6 +37,10 @@ export default function App() {
   useEffect(() => {
     refreshUnread();
   }, [token, view, refreshUnread]);
+
+  useEffect(() => {
+    if (view !== "history") setHistoryFocusExpenseId(null);
+  }, [view]);
 
   useEffect(() => {
     if (!token) return;
@@ -91,13 +96,22 @@ export default function App() {
             onDataChange={refreshUnread}
             onNavigate={(v) => setView(v === "budgets" ? "budgets" : "goals")}
             onOpenTour={() => setShowOnboarding(true)}
+            onOpenHistoryForExpense={(expenseId) => {
+              setHistoryFocusExpenseId(expenseId);
+              setView("history");
+            }}
           />
         )}
         {view === "notifications" && <NotificationsPage onRead={refreshUnread} />}
         {view === "budgets" && <BudgetsPage />}
         {view === "goals" && <GoalsPage />}
         {view === "lists" && <SharedListsPage />}
-        {view === "history" && <HistoryPage />}
+        {view === "history" && (
+          <HistoryPage
+            focusExpenseId={historyFocusExpenseId}
+            onClearFocus={() => setHistoryFocusExpenseId(null)}
+          />
+        )}
         {view === "settings" && <SettingsPage />}
       </main>
     </div>

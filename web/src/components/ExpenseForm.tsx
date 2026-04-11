@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import type { SharedList } from "../api/client";
-import { ApiError, createExpense, NetworkFailure } from "../api/client";
+import { ApiError, createExpense, listCategoryRules, NetworkFailure } from "../api/client";
 import { enqueueQueued } from "../lib/offlineDb";
 import { useToast } from "../contexts/ToastContext";
 import { compressReceiptToDataUrl } from "../lib/compressReceiptImage";
+import { findMatchingCategoryRule } from "../lib/categoryRuleMatch";
 
 type Props = {
   token: string;
@@ -29,12 +30,31 @@ export function ExpenseForm({ token, lists, userId, onCreated, onPendingChange }
   const [dueDate, setDueDate] = useState("");
   const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
   const [receiptLabel, setReceiptLabel] = useState<string | null>(null);
+  const [categoryRules, setCategoryRules] = useState<{ pattern: string; category: string }[]>([]);
 
   useEffect(() => {
     if (!open) setError(null);
   }, [open]);
 
-  function resetAfterSave(recordedAsIncome: boolean, opts?: { noToast?: boolean }) {
+  useEffect(() => {
+    if (!token) {
+      setCategoryRules([]);
+      return;
+    }
+    let cancelled = false;
+    listCategoryRules(token)
+      .then((d) => {
+        if (!cancelled) setCategoryRules(d.rules);
+      })
+      .catch(() => {
+        if (!cancelled) setCategoryRules([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  function resetAfterSave(recordedAsIncome: boolean, opts?: { noToast?: boolean; toastDetail?: string }) {
     setAmount("");
     setCategory("");
     setDescription("");
@@ -46,7 +66,10 @@ export function ExpenseForm({ token, lists, userId, onCreated, onPendingChange }
     if (receiptInputRef.current) receiptInputRef.current.value = "";
     setOpen(false);
     onCreated();
-    if (!opts?.noToast) showToast(recordedAsIncome ? "Ingreso registrado" : "Gasto guardado");
+    if (!opts?.noToast) {
+      const base = recordedAsIncome ? "Ingreso registrado" : "Gasto guardado";
+      showToast(opts?.toastDetail ? `${base} · ${opts.toastDetail}` : base);
+    }
   }
 
   async function submit(e: React.FormEvent) {
@@ -71,20 +94,30 @@ export function ExpenseForm({ token, lists, userId, onCreated, onPendingChange }
       receipt_url: receiptPreview,
     };
     try {
+      let savedExpense: { category: string | null; description: string | null } | null = null;
       try {
-        await createExpense(token, { ...payload, force_duplicate: false });
+        const { expense } = await createExpense(token, { ...payload, force_duplicate: false });
+        savedExpense = expense;
       } catch (err) {
         if (err instanceof ApiError && err.status === 409) {
           const ok = window.confirm(
             "Ya cargaste un movimiento con el mismo importe y moneda en este día. ¿Querés guardar este igualmente?",
           );
           if (!ok) return;
-          await createExpense(token, { ...payload, force_duplicate: true });
+          const { expense } = await createExpense(token, { ...payload, force_duplicate: true });
+          savedExpense = expense;
         } else {
           throw err;
         }
       }
-      resetAfterSave(recordedAsIncome);
+      let ruleDetail: string | undefined;
+      if (savedExpense && !category.trim() && savedExpense.category) {
+        const matched = findMatchingCategoryRule(categoryRules, savedExpense.description);
+        if (matched && matched.category === savedExpense.category) {
+          ruleDetail = `categoría «${matched.category}» por regla «${matched.pattern}»`;
+        }
+      }
+      resetAfterSave(recordedAsIncome, ruleDetail ? { toastDetail: ruleDetail } : undefined);
     } catch (err) {
       if (err instanceof NetworkFailure && userId) {
         await enqueueQueued({
@@ -152,7 +185,7 @@ export function ExpenseForm({ token, lists, userId, onCreated, onPendingChange }
   return (
     <form onSubmit={submit} className="expense-panel">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <h2 className="expense-panel-title">Registrar movimiento</h2>
+        <h2 className="expense-panel-title">Nuevo movimiento</h2>
         <button type="button" onClick={() => setOpen(false)} className="expense-panel-close" aria-label="Cerrar">
           ×
         </button>

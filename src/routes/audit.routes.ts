@@ -6,7 +6,7 @@ import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
 import { EXPENSE_VISIBILITY_SQL } from "../lib/expenseVisibilitySql.js";
 
 const listQuery = z.object({
-  limit: z.coerce.number().int().min(1).max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(500).optional(),
   offset: z.coerce.number().int().min(0).optional(),
 });
 

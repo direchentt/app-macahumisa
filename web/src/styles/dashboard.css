@@ -17,15 +17,13 @@
 
 /* Bienvenida compacta (primera vez / tras cerrar tour con Esc) */
 .dash-welcome {
-  margin-bottom: 20px;
-  padding: 18px 20px;
-  border-radius: var(--radius);
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  margin-bottom: 22px;
+  padding: 20px 22px;
+  border-radius: calc(var(--radius) + 2px);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
   background:
-    linear-gradient(135deg, var(--accent-dim) 0%, transparent 42%),
-    linear-gradient(225deg, color-mix(in srgb, var(--brand-blue) 10%, transparent) 0%, transparent 50%),
-    linear-gradient(var(--bg-elevated), var(--bg-elevated));
-  box-shadow: var(--shadow-md);
+    linear-gradient(145deg, color-mix(in srgb, var(--pastel-coral) 40%, var(--bg-elevated)) 0%, var(--bg-elevated) 52%, color-mix(in srgb, var(--pastel-blue) 35%, var(--bg-elevated)) 100%);
+  box-shadow: var(--shadow-md), 0 1px 0 color-mix(in srgb, #fff 40%, transparent);
 }
 
 .dash-welcome-top {
@@ -77,10 +75,10 @@
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  font-size: 0.875rem;
+  font-size: 0.84rem;
   font-weight: var(--fw-medium);
-  color: var(--text-muted);
-  line-height: 1.45;
+  color: color-mix(in srgb, var(--text) 72%, var(--text-muted));
+  line-height: 1.5;
 }
 
 .dash-welcome-list li::before {
@@ -104,6 +102,7 @@
 .dash-welcome-list li:nth-child(3)::before {
   background: var(--brand-blue);
 }
+
 
 .dash-hero {
   display: flex;
@@ -137,6 +136,50 @@
   font-weight: var(--fw-normal);
   max-width: 36rem;
   line-height: 1.45;
+}
+
+.dash-title-block-lead {
+  max-width: 34rem;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  font-weight: var(--fw-medium);
+  color: color-mix(in srgb, var(--text) 78%, var(--text-muted));
+}
+
+.dash-panel-lead {
+  margin: 0 0 14px;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  max-width: 36rem;
+}
+
+.dash-compare-lead {
+  margin: 0 0 14px;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  max-width: 38rem;
+}
+
+.dash-overview-intro {
+  margin: 0 0 14px;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.dash-overview-intro strong {
+  color: var(--text);
+  font-weight: var(--fw-bold);
+}
+
+.dash-overview-foot {
+  margin-top: 18px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+  max-width: 32rem;
 }
 
 .dash-quick-actions {
@@ -577,6 +620,194 @@
 .dash-due-banner ul {
   margin: 10px 0 0;
   padding-left: 1.1rem;
+}
+
+.dash-due-details {
+  margin-bottom: 18px;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-sm);
+}
+
+.dash-due-details summary {
+  cursor: pointer;
+  font-weight: var(--fw-semibold);
+  font-size: 0.9rem;
+  color: var(--text);
+  list-style: none;
+}
+
+.dash-due-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.dash-due-details summary::before {
+  content: "▸ ";
+  display: inline-block;
+  transition: transform var(--motion-fast) var(--motion-ease);
+  color: var(--text-muted);
+}
+
+.dash-due-details[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.dash-due-details-list {
+  margin: 12px 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+
+.dash-health-strip {
+  margin-bottom: 20px;
+  padding: 18px 20px;
+  border-radius: calc(var(--radius) - 2px);
+  border: 1px solid color-mix(in srgb, var(--brand-mint) 16%, var(--border));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--pastel-mint) 28%, var(--bg-elevated)) 0%, var(--bg-elevated) 100%);
+  box-shadow: var(--shadow-sm);
+}
+
+.dash-health-strip-label {
+  margin: 0 0 12px;
+  font-size: 0.6875rem;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--brand-mint);
+}
+
+.dash-health-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 560px) {
+  .dash-health-grid {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
+}
+
+.dash-health-card {
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  font-size: 0.86rem;
+  backdrop-filter: blur(6px);
+}
+
+.dash-health-card strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.dash-health-card-line {
+  margin: 0;
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+  line-height: 1.35;
+}
+
+.dash-health-card-sub {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+.dash-health-card--coral {
+  background: color-mix(in srgb, var(--pastel-coral) 65%, var(--bg-elevated));
+}
+
+.dash-health-card--blue {
+  background: color-mix(in srgb, var(--pastel-blue) 65%, var(--bg-elevated));
+}
+
+.dash-health-card--mint {
+  background: color-mix(in srgb, var(--pastel-mint) 55%, var(--bg-elevated));
+}
+
+.dash-compare-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.dash-compare-panel {
+  margin-bottom: 18px;
+}
+
+.dash-compare-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 560px) {
+  .dash-compare-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.dash-compare-col-title {
+  margin: 0 0 8px;
+  font-size: 0.8rem;
+  font-weight: var(--fw-bold);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.dash-compare-list {
+  margin: 0;
+  padding-left: 1rem;
+  font-size: 0.88rem;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.dash-compare-count {
+  margin: 8px 0 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.dash-rule-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 7px;
+  font-size: 0.65rem;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--brand-blue) 18%, var(--surface));
+  color: color-mix(in srgb, var(--brand-blue) 85%, var(--text));
+  vertical-align: middle;
+}
+
+.dash-rule-badge--inline {
+  margin-left: 0;
+  padding: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+  background: none;
+  color: var(--cta);
+}
+
+.dash-filter-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.45;
 }
 
 .dash-loading {

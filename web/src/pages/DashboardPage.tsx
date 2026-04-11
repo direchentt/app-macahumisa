@@ -6,16 +6,22 @@ import {
   deleteExpense,
   exportExpensesCsv,
   listBudgets,
+  listCategoryRules,
   listExpenses,
+  listSavingsGoals,
   listSharedLists,
   getBudgetUsage,
   NetworkFailure,
   updateExpense,
   type BudgetUsage,
+  type CategoryRule,
   type Expense,
   type ExpenseListQuery,
+  type SavingsGoal,
   type SharedList,
 } from "../api/client";
+import { findMatchingCategoryRule } from "../lib/categoryRuleMatch";
+import { savingsGoalInsight } from "../lib/savingsGoalInsight";
 import { ExpenseForm } from "../components/ExpenseForm";
 import { ExpenseEditModal } from "../components/ExpenseEditModal";
 import { DatabaseSetupHint } from "../components/DatabaseSetupHint";
@@ -37,6 +43,7 @@ type Props = {
   onDataChange?: () => void;
   onNavigate?: (view: "budgets" | "goals") => void;
   onOpenTour?: () => void;
+  onOpenHistoryForExpense?: (expenseId: string) => void;
 };
 
 type DashTab = "month" | "custom" | "overview";
@@ -98,7 +105,7 @@ function upcomingDues(expenses: Expense[], days: number) {
     .sort((a, b) => new Date(a.due_date!).getTime() - new Date(b.due_date!).getTime());
 }
 
-export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
+export function DashboardPage({ onDataChange, onNavigate, onOpenTour, onOpenHistoryForExpense }: Props) {
   const { token, userId } = useAuth();
   const { showToast } = useToast();
   const [welcomeDismissedLocal, setWelcomeDismissedLocal] = useState(false);
@@ -119,6 +126,15 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
   const [err, setErr] = useState<string | null>(null);
   const [editing, setEditing] = useState<Expense | null>(null);
   const [budgetAlerts, setBudgetAlerts] = useState<{ over: number; usage: BudgetUsage[] }>({ over: 0, usage: [] });
+  const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([]);
+  const [categoryRules, setCategoryRules] = useState<CategoryRule[]>([]);
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [compareLoading, setCompareLoading] = useState(false);
+  const [prevMonthSummary, setPrevMonthSummary] = useState<{
+    label: string;
+    map: Map<string, { spent: number; income: number }>;
+    count: number;
+  } | null>(null);
 
   const [dashTab, setDashTab] = useState<DashTab>("month");
   const [periodYm, setPeriodYm] = useState(ymNow);
@@ -292,34 +308,117 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
     };
   }, [token, expenses.length, pendingOps.length]);
 
+  useEffect(() => {
+    if (!token) {
+      setSavingsGoals([]);
+      return;
+    }
+    let cancelled = false;
+    listSavingsGoals(token)
+      .then((d) => {
+        if (!cancelled) setSavingsGoals(d.goals);
+      })
+      .catch(() => {
+        if (!cancelled) setSavingsGoals([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, expenses.length]);
+
+  useEffect(() => {
+    if (!token) {
+      setCategoryRules([]);
+      return;
+    }
+    let cancelled = false;
+    listCategoryRules(token)
+      .then((d) => {
+        if (!cancelled) setCategoryRules(d.rules);
+      })
+      .catch(() => {
+        if (!cancelled) setCategoryRules([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  const loadPrevMonthCompare = useCallback(async () => {
+    if (!token || (dashTab !== "month" && dashTab !== "overview")) return;
+    const prevYm = shiftYm(periodYm, -1);
+    const { from, to } = boundsForYm(prevYm);
+    const p: ExpenseListQuery = { from, to, limit: 500 };
+    if (q.trim()) p.q = q.trim();
+    if (category.trim()) p.category = category.trim();
+    if (listFilter === "__personal__") p.personal_only = true;
+    else if (listFilter) p.shared_list_id = listFilter;
+    if (incomeFilter === "in") p.is_income = true;
+    if (incomeFilter === "out") p.is_income = false;
+    setCompareLoading(true);
+    try {
+      const { expenses: rows } = await listExpenses(token, p);
+      setPrevMonthSummary({
+        label: labelForYm(prevYm),
+        map: totalsByCurrency(rows),
+        count: rows.length,
+      });
+    } catch {
+      setPrevMonthSummary(null);
+    } finally {
+      setCompareLoading(false);
+    }
+  }, [token, dashTab, periodYm, q, category, listFilter, incomeFilter]);
+
+  useEffect(() => {
+    if (!compareOpen || !token) {
+      setPrevMonthSummary(null);
+      return;
+    }
+    void loadPrevMonthCompare();
+  }, [compareOpen, token, loadPrevMonthCompare]);
+
   const displayExpenses = useMemo(() => buildDisplayExpenses(expenses, pendingOps), [expenses, pendingOps]);
+
+  const ruleBadgeByExpenseId = useMemo(() => {
+    const rules = categoryRules.map((r) => ({ pattern: r.pattern, category: r.category }));
+    const m = new Map<string, string>();
+    for (const row of displayExpenses) {
+      if (!row.category || row.pending_sync) continue;
+      const hit = findMatchingCategoryRule(rules, row.description);
+      if (hit && hit.category === row.category) m.set(row.id, hit.pattern);
+    }
+    return m;
+  }, [displayExpenses, categoryRules]);
 
   const periodLabel = useMemo(() => labelForYm(periodYm), [periodYm]);
   const summaryMap = useMemo(() => totalsByCurrency(displayExpenses), [displayExpenses]);
   const dues = useMemo(() => upcomingDues(displayExpenses, 45), [displayExpenses]);
 
+  const goalsNeedAttention = useMemo(
+    () =>
+      savingsGoals.filter((g) => {
+        const i = savingsGoalInsight(g);
+        return i === "Ritmo por debajo del plazo" || i === "Meta vencida sin completar";
+      }).length,
+    [savingsGoals],
+  );
+
   const smartHints = useMemo(() => {
     const hints: string[] = [];
-    const over = budgetAlerts.usage.filter((u) => u.over_limit);
-    if (over.length > 0) {
-      hints.push(
-        `${over.length} categoría(s) por encima del presupuesto: ${over.map((u) => u.category).join(", ")}.`,
-      );
+    if (displayExpenses.length > 2 && categoryRules.length === 0) {
+      hints.push("Ahorrá tiempo: en Ajustes, una palabra en la nota puede fijar la categoría sola.");
     }
-    const warn = budgetAlerts.usage.filter((u) => !u.over_limit && u.percent_used >= 85);
-    if (warn.length > 0) {
-      hints.push(
-        `Cerca del tope: ${warn.map((u) => `${u.category} (${Math.round(u.percent_used)}%)`).join(" · ")}.`,
-      );
-    }
-    if (dues.length > 0) {
-      hints.push(`Tenés ${dues.length} pago(s) con vencimiento en los próximos 45 días.`);
-    }
-    if (hints.length === 0 && displayExpenses.length > 2) {
-      hints.push("En Ajustes podés crear reglas para asignar categoría automáticamente según palabras en la nota.");
+    if (listFilter && hints.length === 0) {
+      hints.push("Los topes miran la categoría del período: cuenta igual el gasto en lista o personal.");
     }
     return hints;
-  }, [budgetAlerts.usage, dues.length, displayExpenses.length]);
+  }, [displayExpenses.length, categoryRules.length, listFilter]);
+
+  const nearBudgetLimit = budgetAlerts.usage.filter((u) => !u.over_limit && u.percent_used >= 85).length;
+
+  const showHealthStrip =
+    budgetAlerts.over > 0 || nearBudgetLimit > 0 || dues.length > 0 || goalsNeedAttention > 0;
 
   const showList = dashTab === "month" || dashTab === "custom";
   const listSlice = dashTab === "overview" ? displayExpenses.slice(0, 8) : displayExpenses;
@@ -379,6 +478,46 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
     }
   }
 
+  function handleExportSummaryTxt() {
+    const lines: string[] = [
+      "MACAHUMISA — Resumen de período",
+      `Generado: ${new Intl.DateTimeFormat("es", { dateStyle: "long", timeStyle: "short" }).format(new Date())}`,
+      "",
+    ];
+    if (dashTab === "month" || dashTab === "overview") {
+      lines.push(`Período: ${periodLabel}`);
+    } else {
+      lines.push(`Vista: personalizado (${from || "—"} → ${to || "—"})`);
+    }
+    if (filtersActive) lines.push("(Hay filtros activos en la vista.)");
+    lines.push("");
+    for (const [currency, { spent, income }] of summaryMap.entries()) {
+      lines.push(`${currency}: gastado ${fmtMoney(String(spent), currency)}, ingresos ${fmtMoney(String(income), currency)}, balance ${fmtMoney(String(income - spent), currency)}`);
+    }
+    lines.push(`Movimientos listados: ${displayExpenses.length}`);
+    if (budgetAlerts.over > 0) lines.push(`Presupuestos sobre tope: ${budgetAlerts.over}`);
+    const warn = budgetAlerts.usage.filter((u) => !u.over_limit && u.percent_used >= 85);
+    if (warn.length > 0) lines.push(`Cerca del tope: ${warn.map((u) => `${u.category} ${Math.round(u.percent_used)}%`).join(", ")}`);
+    if (dues.length > 0) {
+      lines.push("");
+      lines.push("Próximos vencimientos (45 días):");
+      for (const e of dues) {
+        lines.push(`  - ${fmtDateShort(e.due_date!)} ${fmtMoney(e.amount, e.currency)}${e.description ? ` · ${e.description}` : ""}`);
+      }
+    }
+    lines.push("");
+    lines.push("---");
+    lines.push("Podés adjuntar este archivo a un mail o guardarlo con tu respaldo JSON en Ajustes.");
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `macahumisa-resumen-${dashTab === "custom" ? "personalizado" : periodYm}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast("Resumen .txt descargado");
+  }
+
   function handlePrint() {
     const w = window.open("", "_blank");
     if (!w) {
@@ -409,13 +548,13 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
       <section className="dash-kpi-grid" aria-label="Resumen del período">
         {filtersActive && (
           <p style={{ gridColumn: "1 / -1", margin: 0, fontSize: "0.78rem", color: "var(--text-muted)" }}>
-            Cifras según los movimientos listados (hay filtros activos).
+            Cifras con filtros aplicados.
           </p>
         )}
         {[...summaryMap.entries()].map(([currency, { spent, income }]) => {
           const balance = income - spent;
           const suffix = summaryMap.size > 1 ? ` (${currency})` : "";
-          const footnote = filtersActive ? "Según filtros activos" : "En el período mostrado";
+          const footnote = filtersActive ? "Con filtros" : "Este período";
           const card = (variant: "coral" | "mint" | "blue", label: string, value: string, sub?: string) => (
             <div key={label + currency} className={`dash-kpi dash-kpi--${variant}`}>
               <div className="dash-kpi-color">
@@ -438,7 +577,7 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
                 "blue",
                 "Balance",
                 fmtMoney(String(Math.abs(balance)), currency),
-                balance >= 0 ? "Ingresos ≥ gastos" : "Gastos mayores a ingresos",
+                balance >= 0 ? "Entrada cubre salida" : "Salida mayor a entrada",
               )}
             </div>
           );
@@ -463,7 +602,14 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
           <td className={`num ${row.is_income ? "income" : ""}`}>
             {row.is_income ? "+" : "−"} {fmtMoney(row.amount, row.currency)}
           </td>
-          <td style={{ color: "var(--text-muted)" }}>{row.category ?? "—"}</td>
+          <td style={{ color: "var(--text-muted)" }}>
+            <span>{row.category ?? "—"}</span>
+            {ruleBadgeByExpenseId.has(row.id) ? (
+              <span className="dash-rule-badge" title={`Regla automática: «${ruleBadgeByExpenseId.get(row.id)}»`}>
+                regla
+              </span>
+            ) : null}
+          </td>
           <td style={{ color: "var(--text-muted)", maxWidth: 200 }}>{row.description ?? "—"}</td>
           <td style={{ color: "var(--text-muted)", fontSize: "0.85rem", whiteSpace: "nowrap" }}>
             {row.due_date ? fmtDateShort(row.due_date) : "—"}
@@ -488,6 +634,16 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
                 <button type="button" className="dash-link-btn" onClick={() => setEditing(row)}>
                   Editar
                 </button>{" "}
+                {onOpenHistoryForExpense ? (
+                  <button
+                    type="button"
+                    className="dash-link-btn dash-link-btn--muted"
+                    onClick={() => onOpenHistoryForExpense(row.id)}
+                  >
+                    Historial
+                  </button>
+                ) : null}
+                {onOpenHistoryForExpense ? " " : null}
                 <button type="button" className="dash-link-btn dash-link-btn--muted" onClick={() => handleDelete(row.id)}>
                   Eliminar
                 </button>
@@ -515,6 +671,12 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
           </div>
           <p className="dash-exp-card-meta">
             {(row.category ?? "Sin categoría") + (row.description ? ` · ${row.description}` : "")}
+            {ruleBadgeByExpenseId.has(row.id) ? (
+              <span className="dash-rule-badge dash-rule-badge--inline" title={`Regla: «${ruleBadgeByExpenseId.get(row.id)}»`}>
+                {" "}
+                · regla
+              </span>
+            ) : null}
           </p>
           <p className="dash-exp-card-meta">
             {listName}
@@ -538,6 +700,15 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
                 <button type="button" className="dash-link-btn" onClick={() => setEditing(row)}>
                   Editar
                 </button>
+                {onOpenHistoryForExpense ? (
+                  <button
+                    type="button"
+                    className="dash-link-btn dash-link-btn--muted"
+                    onClick={() => onOpenHistoryForExpense(row.id)}
+                  >
+                    Historial
+                  </button>
+                ) : null}
                 <button type="button" className="dash-link-btn dash-link-btn--muted" onClick={() => handleDelete(row.id)}>
                   Eliminar
                 </button>
@@ -556,16 +727,14 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
         <div className="dash-offline-banner" role="status">
           {dataFromCache ? (
             <p>
-              <strong>Sin conexión o sin respuesta del servidor.</strong> Mostrando datos guardados en este dispositivo
-              (última sincronización de esta vista).
+              <strong>Sin conexión.</strong> Mostrando la última copia de esta vista en el dispositivo.
             </p>
           ) : null}
           {pendingOps.length > 0 ? (
             <p>
-              <strong>{pendingOps.length} operación(es) en cola</strong> (altas, ediciones o bajas) para enviar cuando haya
-              red.
+              <strong>{pendingOps.length} pendiente(s)</strong> de subir cuando vuelva la red.
               <button type="button" className="dash-offline-banner__btn" onClick={() => void syncPendingQueue()}>
-                Sincronizar ahora
+                Sincronizar
               </button>
             </p>
           ) : null}
@@ -577,15 +746,15 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
         <section className="dash-welcome dash-welcome--polish" aria-labelledby="dash-welcome-title">
           <div className="dash-welcome-top">
             <div>
-              <p className="dash-welcome-eyebrow">Empezá tranquilo</p>
+              <p className="dash-welcome-eyebrow">Primeros pasos</p>
               <h2 id="dash-welcome-title" className="dash-welcome-title">
-                Tu mes y tus movimientos, en un solo lugar
+                Registrá, mirá el mes y ajustá topes si hace falta
               </h2>
             </div>
             <div className="dash-welcome-actions">
               {onOpenTour && (
                 <button type="button" className="dash-btn dash-btn--primary" onClick={() => onOpenTour()}>
-                  Ver tour guiado
+                  Tour guiado
                 </button>
               )}
               <button
@@ -596,21 +765,62 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
                   setWelcomeDismissedLocal(true);
                 }}
               >
-                Entendido, ocultar
+                Cerrar
               </button>
             </div>
           </div>
           <ul className="dash-welcome-list">
-            <li>Usá «Por mes» para el calendario; «Personalizado» si necesitás rangos o más filtros.</li>
-            <li>Los presupuestos y las metas están a un clic en la barra superior.</li>
-            <li>En el celular, la tabla se convierte en tarjetas para leer más cómodo.</li>
+            <li>
+              <strong>1.</strong> Tocá «+ Nuevo gasto». Elegí mes con las flechas o abrí filtros en las pestañas.
+            </li>
+            <li>
+              <strong>2.</strong> Presupuestos y Metas: en la barra de arriba.
+            </li>
+            <li>
+              <strong>3.</strong> En el celular la lista pasa a tarjetas; si aparece «Salud del mes», es un resumen rápido de alertas.
+            </li>
           </ul>
+        </section>
+      )}
+
+      {showHealthStrip && (
+        <section className="dash-health-strip" aria-label="Resumen de alertas">
+          <p className="dash-health-strip-label">Qué mirar ahora</p>
+          <div className="dash-health-grid">
+            {(budgetAlerts.over > 0 || nearBudgetLimit > 0) && (
+              <div className="dash-health-card dash-health-card--coral">
+                <strong>Presupuestos</strong>
+                <p className="dash-health-card-line">
+                  {budgetAlerts.over > 0 ? `${budgetAlerts.over} categoría(s) pasadas de tope` : "Nada pasado de tope"}
+                </p>
+                {nearBudgetLimit > 0 ? (
+                  <p className="dash-health-card-sub">{nearBudgetLimit} al 85% o más — revisá en Presupuestos</p>
+                ) : null}
+              </div>
+            )}
+            {dues.length > 0 && (
+              <div className="dash-health-card dash-health-card--blue">
+                <strong>Vencimientos</strong>
+                <p className="dash-health-card-line">{dues.length} pago(s) en los próximos 45 días</p>
+                <p className="dash-health-card-sub">Desplegá «Próximos pagos» más abajo</p>
+              </div>
+            )}
+            {goalsNeedAttention > 0 && (
+              <div className="dash-health-card dash-health-card--mint">
+                <strong>Metas</strong>
+                <p className="dash-health-card-line">
+                  {goalsNeedAttention} meta(s) necesitan atención
+                </p>
+                <p className="dash-health-card-sub">Abrí Metas en la barra</p>
+              </div>
+            )}
+          </div>
         </section>
       )}
 
       {smartHints.length > 0 && (
         <section className="dash-smart-strip" aria-label="Sugerencias">
-          <p className="dash-smart-strip-label">Resumen inteligente</p>
+          <p className="dash-smart-strip-label">Un dato útil</p>
           <ul className="dash-smart-strip-list">
             {smartHints.map((h, i) => (
               <li key={i}>{h}</li>
@@ -621,9 +831,9 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
 
       <div className="dash-hero dash-hero--polish">
         <div className="dash-title-block">
-          <h1>Gastos</h1>
-          <p>
-            Organizá por mes, explorá con filtros a medida o mirá el resumen. En el celular los movimientos se ven como tarjetas.
+          <h1>Inicio</h1>
+          <p className="dash-title-block-lead">
+            Sumá cada movimiento acá. Los topes por categoría usan el mismo período y categoría — también si el gasto viene de una lista compartida.
           </p>
           <div className="dash-quick-actions">
             {onNavigate && (
@@ -633,10 +843,10 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
                   className={"dash-btn" + (budgetAlerts.over > 0 ? " dash-btn--warn" : "")}
                   onClick={() => onNavigate("budgets")}
                 >
-                  Presupuestos{budgetAlerts.over > 0 ? ` · ${budgetAlerts.over} sobre tope` : ""}
+                  Presupuestos{budgetAlerts.over > 0 ? ` · ${budgetAlerts.over} fuera de tope` : ""}
                 </button>
                 <button type="button" className="dash-btn" onClick={() => onNavigate("goals")}>
-                  Metas de ahorro
+                  Metas
                 </button>
               </>
             )}
@@ -657,24 +867,27 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
           role="tab"
           aria-selected={dashTab === "month"}
           className="dash-tab"
+          title="Un mes calendario"
           onClick={() => setDashTab("month")}
         >
-          Por mes
+          Mes
         </button>
         <button
           type="button"
           role="tab"
           aria-selected={dashTab === "custom"}
           className="dash-tab"
+          title="Rango y filtros avanzados"
           onClick={() => setDashTab("custom")}
         >
-          Personalizado
+          A medida
         </button>
         <button
           type="button"
           role="tab"
           aria-selected={dashTab === "overview"}
           className="dash-tab"
+          title="Vista corta del mes"
           onClick={() => setDashTab("overview")}
         >
           Resumen
@@ -682,28 +895,83 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
       </div>
 
       {(dashTab === "month" || dashTab === "overview") && (
-        <div className="dash-month-bar">
-          <button type="button" className="dash-month-nav" aria-label="Mes anterior" onClick={() => setPeriodYm((y) => shiftYm(y, -1))}>
-            ‹
-          </button>
-          <input
-            className="dash-month-input"
-            type="month"
-            value={periodYm}
-            onChange={(e) => e.target.value && setPeriodYm(e.target.value)}
-            aria-label="Elegir mes"
-          />
-          <button type="button" className="dash-month-nav" aria-label="Mes siguiente" onClick={() => setPeriodYm((y) => shiftYm(y, 1))}>
-            ›
-          </button>
-        </div>
+        <>
+          <div className="dash-month-bar">
+            <button type="button" className="dash-month-nav" aria-label="Mes anterior" onClick={() => setPeriodYm((y) => shiftYm(y, -1))}>
+              ‹
+            </button>
+            <input
+              className="dash-month-input"
+              type="month"
+              value={periodYm}
+              onChange={(e) => e.target.value && setPeriodYm(e.target.value)}
+              aria-label="Elegir mes"
+            />
+            <button type="button" className="dash-month-nav" aria-label="Mes siguiente" onClick={() => setPeriodYm((y) => shiftYm(y, 1))}>
+              ›
+            </button>
+          </div>
+          <div className="dash-compare-row">
+            <button
+              type="button"
+              className="dash-btn dash-btn--ghost"
+              onClick={() => setCompareOpen((v) => !v)}
+            >
+              {compareOpen ? "Cerrar comparación" : "Comparar con el mes pasado"}
+            </button>
+          </div>
+          {compareOpen && (
+            <section className="dash-panel dash-compare-panel" aria-label="Comparación con mes anterior">
+              {compareLoading ? (
+                <p className="app-loading-text" style={{ margin: 0 }}>Cargando…</p>
+              ) : prevMonthSummary ? (
+                <>
+                  <h2 className="dash-panel-title">Mes anterior · {prevMonthSummary.label}</h2>
+                  <p className="dash-compare-lead">
+                    Mismos filtros que arriba; solo cambia el mes. Así ves si gastaste más o menos.
+                  </p>
+                  <div className="dash-compare-grid">
+                    <div>
+                      <p className="dash-compare-col-title">{periodLabel}</p>
+                      <ul className="dash-compare-list">
+                        {[...summaryMap.entries()].map(([cur, { spent, income }]) => (
+                          <li key={`cur-${cur}`}>
+                            <strong>{cur}</strong>: gastado {fmtMoney(String(spent), cur)}, ingresos {fmtMoney(String(income), cur)}, balance{" "}
+                            {fmtMoney(String(income - spent), cur)}
+                          </li>
+                        ))}
+                        {summaryMap.size === 0 ? <li>Sin movimientos</li> : null}
+                      </ul>
+                      <p className="dash-compare-count">{displayExpenses.length} movimiento(s)</p>
+                    </div>
+                    <div>
+                      <p className="dash-compare-col-title">{prevMonthSummary.label}</p>
+                      <ul className="dash-compare-list">
+                        {[...prevMonthSummary.map.entries()].map(([cur, { spent, income }]) => (
+                          <li key={`prev-${cur}`}>
+                            <strong>{cur}</strong>: gastado {fmtMoney(String(spent), cur)}, ingresos {fmtMoney(String(income), cur)}, balance{" "}
+                            {fmtMoney(String(income - spent), cur)}
+                          </li>
+                        ))}
+                        {prevMonthSummary.map.size === 0 ? <li>Sin movimientos</li> : null}
+                      </ul>
+                      <p className="dash-compare-count">{prevMonthSummary.count} movimiento(s)</p>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <p style={{ margin: 0, color: "var(--text-muted)" }}>No se pudo cargar el mes pasado. Reintentá.</p>
+              )}
+            </section>
+          )}
+        </>
       )}
 
       {dashTab === "custom" && (
         <section className="dash-panel">
-          <h2 className="dash-panel-title">Filtros avanzados</h2>
-          <p style={{ margin: "0 0 12px", fontSize: "0.85rem", color: "var(--text-muted)" }}>
-            Elegí rango de fechas opcional y refiná por texto, categoría, lista o tipo. Sin fechas, se listan los últimos movimientos.
+          <h2 className="dash-panel-title">Filtros</h2>
+          <p className="dash-panel-lead">
+            Fechas opcionales; podés buscar por texto, categoría, lista o tipo. Sin fechas: últimos movimientos.
           </p>
           <div className="dash-field-grid">
             <input
@@ -729,6 +997,9 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
                 </option>
               ))}
             </select>
+            <p className="dash-filter-hint" style={{ gridColumn: "1 / -1", margin: 0 }}>
+              Filtrar por lista solo acota la tabla. Los presupuestos siguen mirando categoría + período en todos tus movimientos.
+            </p>
             <select
               className="dash-select"
               value={incomeFilter}
@@ -761,6 +1032,9 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
             <button type="button" className="dash-btn" onClick={() => void handleExportCsv()}>
               CSV
             </button>
+            <button type="button" className="dash-btn" onClick={() => handleExportSummaryTxt()}>
+              Resumen .txt
+            </button>
             <button type="button" className="dash-btn" onClick={handlePrint}>
               Imprimir / PDF
             </button>
@@ -770,7 +1044,7 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
 
       {(dashTab === "month" || dashTab === "overview") && (
         <section className="dash-panel" style={{ marginBottom: 16 }}>
-          <h2 className="dash-panel-title">Filtros rápidos ({periodLabel})</h2>
+          <h2 className="dash-panel-title">Filtros · {periodLabel}</h2>
           <div className="dash-field-grid">
             <input
               className="dash-input"
@@ -802,6 +1076,9 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
               <option value="out">Gastos</option>
               <option value="in">Ingresos</option>
             </select>
+            <p className="dash-filter-hint" style={{ gridColumn: "1 / -1", margin: 0 }}>
+              Los topes miran categoría del mes; cuentan gastos en listas si la categoría coincide.
+            </p>
           </div>
           <div className="dash-actions-row">
             <button type="button" className="dash-btn dash-btn--primary" onClick={() => void load()}>
@@ -822,6 +1099,9 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
             <button type="button" className="dash-btn" onClick={() => void handleExportCsv()}>
               CSV
             </button>
+            <button type="button" className="dash-btn" onClick={() => handleExportSummaryTxt()}>
+              Resumen .txt
+            </button>
             <button type="button" className="dash-btn" onClick={handlePrint}>
               Imprimir
             </button>
@@ -834,15 +1114,17 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
       ) : (
         <>
           {dashTab === "overview" && (
-            <p style={{ margin: "0 0 14px", fontSize: "0.9rem", color: "var(--text-muted)" }}>
-              Resumen de <strong style={{ color: "var(--text)" }}>{periodLabel}</strong>
+            <p className="dash-overview-intro">
+              <strong>{periodLabel}</strong> — números y últimos movimientos
             </p>
           )}
 
           {dues.length > 0 && (
-            <div className="dash-due-banner">
-              <strong>Próximos vencimientos (45 días)</strong>
-              <ul>
+            <details className="dash-due-details">
+              <summary>
+                Próximos pagos · {dues.length} en 45 días
+              </summary>
+              <ul className="dash-due-details-list">
                 {dues.map((e) => (
                   <li key={e.id}>
                     {fmtDateShort(e.due_date!)} — {fmtMoney(e.amount, e.currency)}
@@ -850,16 +1132,16 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
                   </li>
                 ))}
               </ul>
-            </div>
+            </details>
           )}
 
           {renderKpiSection()}
 
           {showList && listSlice.length === 0 && (
             <div className="dash-empty">
-              <p style={{ margin: 0, fontSize: "1.05rem", fontWeight: 700, fontFamily: "var(--font-display)" }}>Todavía no hay movimientos acá</p>
+              <p style={{ margin: 0, fontSize: "1.05rem", fontWeight: 700, fontFamily: "var(--font-display)" }}>No hay movimientos en esta vista</p>
               <p style={{ margin: "12px 0 0", fontSize: "0.9rem", maxWidth: "22rem", marginLeft: "auto", marginRight: "auto" }}>
-                Cambiá el mes con las flechas o el selector, o tocá <strong style={{ color: "var(--cta)" }}>+ Nuevo gasto</strong> para registrar el primero.
+                Cambiá el mes o tocá <strong style={{ color: "var(--cta)" }}>+ Nuevo gasto</strong> para el primero.
               </p>
             </div>
           )}
@@ -888,15 +1170,15 @@ export function DashboardPage({ onDataChange, onNavigate, onOpenTour }: Props) {
           )}
 
           {dashTab === "overview" && listSlice.length > 0 && (
-            <p style={{ marginTop: 16, fontSize: "0.82rem", color: "var(--text-muted)" }}>
-              Mostrando los últimos {listSlice.length} movimientos del mes. Para la lista completa usá la pestaña «Por mes».
+            <p className="dash-overview-foot">
+              Vista corta: últimos {listSlice.length} del mes. La lista completa está en la pestaña «Mes».
             </p>
           )}
 
           {dashTab === "overview" && listSlice.length === 0 && !loading && (
             <div className="dash-empty">
-              <p style={{ margin: 0, fontWeight: 700, fontFamily: "var(--font-display)" }}>Sin datos en {periodLabel}</p>
-              <p style={{ margin: "10px 0 0", fontSize: "0.88rem" }}>En «Por mes» ves el listado completo del mes.</p>
+              <p style={{ margin: 0, fontWeight: 700, fontFamily: "var(--font-display)" }}>Nada en {periodLabel}</p>
+              <p style={{ margin: "10px 0 0", fontSize: "0.88rem" }}>Probá la pestaña «Mes» o otro mes.</p>
             </div>
           )}
         </>
